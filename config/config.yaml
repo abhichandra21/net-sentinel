@@ -1,0 +1,18 @@
+monitoring:
+  interval_seconds: 30
+  targets:
+    router: "192.168.1.1"  # Replace with your router IP
+    isp_gateway: "100.64.0.1" # Replace with your ISP Gateway/Next Hop if known (find via traceroute)
+    public_dns_1: "8.8.8.8"
+    public_dns_2: "1.1.1.1"
+    http_target: "https://www.google.com"
+
+mqtt:
+  broker: "192.168.1.10" # Replace with your Home Assistant/Mosquitto IP
+  port: 1883
+  username: "mqtt_user"
+  password: "mqtt_password"
+  topic_prefix: "home/network/sentinel"
+
+logging:
+  file_path: "/data/network_events.csv"

@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  net-sentinel:
+    build: ./sentinel
+    container_name: net-sentinel
+    restart: unless-stopped
+    network_mode: "host" # Required for accurate ping/traceroute and local network discovery
+    privileged: true # Often needed for ICMP ping inside Docker depending on host config
+    volumes:
+      - ./config:/app/config
+      - ./data:/data
+    environment:
+      - CONFIG_PATH=/app/config/config.yaml
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: Portainer for managing these containers if not present
+  # portainer:
+  #   image: portainer/portainer-ce:latest
+  #   ports:
+  #     - "9000:9000"
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #     - portainer_data:/data
+
+volumes:
+  portainer_data:
