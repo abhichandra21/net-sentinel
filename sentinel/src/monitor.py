@@ -8,7 +8,7 @@ from collections import deque
 from diagnostics import (
     check_ping, check_dns, check_http, check_multi_dns, check_multi_http,
     run_traceroute, check_interface_status, run_speedtest,
-    run_cloudflare_speedtest, calculate_jitter
+    run_cloudflare_speedtest, calculate_jitter, check_router_health
 )
 from notifier import Notifier
 
@@ -44,7 +44,10 @@ def perform_health_check(targets):
     """
     results = {}
 
-    # Layer 1: Local network (your router)
+    # Layer 0: Router health (detailed metrics)
+    results['router_health'] = check_router_health(targets['router'])
+
+    # Layer 1: Local network (your router) - basic ping
     results['router'] = check_ping(targets['router'])
 
     # Layer 2: ISP gateway (if configured)
@@ -104,13 +107,46 @@ def diagnose_issue(targets, results, notifier):
     """
     logger.info("Issue detected. Starting fault isolation...")
 
-    # Layer 1: YOUR ROUTER/MODEM
+    # Layer 0: ROUTER HEALTH (detailed check)
+    router_health = results.get('router_health', {})
+    if router_health:
+        health_score = router_health.get('health_score', 100)
+        packet_loss = router_health.get('packet_loss_rate', 0)
+
+        # Check if router is critically unhealthy
+        if health_score < 30:
+            blame = "ROUTER_CRITICAL"
+            logger.error(f"⚠️  FAULT: ROUTER CRITICAL - Health score {health_score}/100")
+            logger.error(f"  Packet loss: {packet_loss}%, Latency: {router_health.get('avg_latency')}ms, Jitter: {router_health.get('jitter')}ms")
+            notifier.log_event("OUTAGE", "Router", f"Router health critical ({health_score}/100) - hardware issue", "CRITICAL")
+            notifier.update_state("blame", "ROUTER_CRITICAL")
+            notifier.update_state("fault_detail", f"Router health critical (score: {health_score}/100, packet loss: {packet_loss}%) - possible hardware failure or overload")
+            return blame
+
+        # Check if router is degraded
+        elif health_score < 60:
+            # Router is struggling, check if ISP also has issues
+            dns_check = results.get('dns', {})
+            http_check = results.get('http', {})
+
+            if dns_check.get('all_succeeded', True) and http_check.get('all_succeeded', True):
+                # Only router is degraded, ISP seems fine
+                blame = "ROUTER_DEGRADED"
+                logger.warning(f"⚠️  DEGRADED: Router performance degraded (score: {health_score}/100)")
+                notifier.log_event("DEGRADED", "Router", f"Router performance degraded (score: {health_score}/100)", "WARNING")
+                notifier.update_state("blame", "ROUTER_DEGRADED")
+                notifier.update_state("fault_detail", f"Router degraded (score: {health_score}/100) - high latency or packet loss")
+                return blame
+            # If ISP also has issues, continue to ISP diagnosis
+            logger.warning(f"Router degraded (score: {health_score}/100) but ISP also has issues - checking ISP...")
+
+    # Layer 1: YOUR ROUTER/MODEM - Basic reachability
     if results['router'] is None:
-        blame = "YOUR_ROUTER"
-        logger.error("⚠️  FAULT: YOUR ROUTER - Router is unreachable")
-        notifier.log_event("OUTAGE", "YourRouter", "Your router/modem is down or unreachable", "CRITICAL")
-        notifier.update_state("blame", "YOUR_ROUTER")
-        notifier.update_state("fault_detail", "Router unreachable - check if router is powered on")
+        blame = "ROUTER_DOWN"
+        logger.error("⚠️  FAULT: ROUTER DOWN - Router is unreachable")
+        notifier.log_event("OUTAGE", "Router", "Router is not responding to ping", "CRITICAL")
+        notifier.update_state("blame", "ROUTER_DOWN")
+        notifier.update_state("fault_detail", "Router not responding to ping - check power and cables")
         return blame
 
     # Layer 2: ISP GATEWAY/EQUIPMENT
@@ -245,6 +281,13 @@ def main():
                 # Report metrics
                 notifier.update_state("router_latency", results['router'])
 
+                # Report router health metrics
+                router_health = results.get('router_health', {})
+                if router_health:
+                    notifier.update_state("router_health_score", router_health.get('health_score'))
+                    notifier.update_state("router_packet_loss", router_health.get('packet_loss_rate'))
+                    notifier.update_state("router_jitter_internal", router_health.get('jitter'))
+
                 dns_data = results.get('dns', {})
                 notifier.update_state("dns_latency", dns_data.get('avg_latency'))
                 notifier.update_state("dns_success_rate", f"{dns_data.get('success_count', 0)}/{dns_data.get('total', 0)}")
@@ -256,8 +299,8 @@ def main():
                 # Jitter tracking
                 if results.get('jitter'):
                     notifier.update_state("jitter", results['jitter'])
-
-                logger.info(f"✓ Healthy - DNS: {dns_data.get('avg_latency')}ms, HTTP: {http_data.get('avg_latency')}ms, Jitter: {results.get('jitter')}ms")
+                router_health_str = f", Router Health: {router_health.get('health_score')}/100" if router_health else ""
+                logger.info(f"✓ Healthy - DNS: {dns_data.get('avg_latency')}ms, HTTP: {http_data.get('avg_latency')}ms, Jitter: {results.get('jitter')}ms{router_health_str}")
 
             else:
                 consecutive_failures += 1

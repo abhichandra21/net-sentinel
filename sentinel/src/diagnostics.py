@@ -163,6 +163,60 @@ def calculate_jitter(latency_samples):
         logger.warning(f"Failed to calculate jitter: {e}")
         return None
 
+def check_router_health(router_ip="192.168.1.1", samples=5):
+    """
+    Check router health with multiple metrics:
+    - Packet loss rate
+    - Average latency
+    - Latency consistency (jitter to router)
+    Returns dict with health assessment.
+    """
+    latencies = []
+    failures = 0
+
+    for i in range(samples):
+        latency = check_ping(router_ip, timeout=1)
+        if latency is None:
+            failures += 1
+        else:
+            latencies.append(latency)
+        time.sleep(0.1)  # Small delay between pings
+
+    return {
+        'packet_loss_rate': round((failures / samples) * 100, 1),
+        'avg_latency': round(statistics.mean(latencies), 2) if latencies else None,
+        'jitter': calculate_jitter(latencies) if len(latencies) >= 2 else None,
+        'health_score': calculate_router_health_score(latencies, failures, samples)
+    }
+
+def calculate_router_health_score(latencies, failures, total_samples):
+    """
+    Score router health 0-100 (100 = perfect)
+    Based on: packet loss, latency, jitter
+    """
+    if not latencies and failures == total_samples:
+        return 0  # Completely unresponsive
+
+    # Start with 100 points
+    score = 100
+
+    # Deduct for packet loss (10 points per 20% loss)
+    loss_rate = failures / total_samples
+    score -= (loss_rate * 50)
+
+    # Deduct for high latency (1 point per ms over 5ms)
+    if latencies:
+        avg_latency = statistics.mean(latencies)
+        if avg_latency > 5:
+            score -= (avg_latency - 5)
+
+    # Deduct for high jitter (2 points per ms jitter)
+    if len(latencies) >= 2:
+        jitter = statistics.stdev(latencies)
+        score -= (jitter * 2)
+
+    return max(0, min(100, round(score)))
+
 def run_cloudflare_speedtest():
     """
     Run Cloudflare speed test using their API.
