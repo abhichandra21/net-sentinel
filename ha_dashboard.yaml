@@ -1,0 +1,35 @@
+# Home Assistant Lovelace Dashboard for Net Sentinel
+# Add this to your Lovelace dashboard
+
+type: vertical-stack
+cards:
+  - type: entities
+    title: Network Health
+    entities:
+      - entity: sensor.netsentinel_network_status
+        name: Local Status
+      - entity: input_boolean.cloud_probe_status
+        name: Cloud Reachability
+      - entity: sensor.netsentinel_last_outage_reason
+  - type: grid
+    columns: 2
+    cards:
+      - type: gauge
+        entity: sensor.netsentinel_internet_latency
+        name: Ping (Out)
+        severity:
+          green: 0
+          yellow: 50
+          red: 100
+      - type: gauge
+        entity: input_number.cloud_probe_latency
+        name: Ping (In)
+        severity:
+          green: 0
+          yellow: 50
+          red: 100
+  - type: history-graph
+    hours_to_show: 24
+    entities:
+      - entity: sensor.netsentinel_download_speed
+      - entity: sensor.netsentinel_upload_speed

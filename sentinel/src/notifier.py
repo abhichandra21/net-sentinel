@@ -29,21 +29,28 @@ class Notifier:
             logger.warning("MQTT broker not configured properly. Skipping MQTT setup.")
             return
 
+        logger.info(f"Setting up MQTT connection to {broker}:{self.config['mqtt']['port']}")
         self.mqtt_client = mqtt.Client("NetSentinel")
         
         if self.config['mqtt'].get('username'):
+            logger.info(f"Using MQTT username: {self.config['mqtt']['username']}")
             self.mqtt_client.username_pw_set(
                 self.config['mqtt']['username'],
                 self.config['mqtt']['password']
             )
 
         try:
-            self.mqtt_client.connect(broker, self.config['mqtt']['port'], 60)
+            logger.info("Attempting MQTT connection...")
+            self.mqtt_client.connect(broker, self.config['mqtt']['port'], 10)  # Reduced timeout
+            logger.info("MQTT connection successful, starting loop...")
             self.mqtt_client.loop_start()
             self.connected = True
+            logger.info("Publishing discovery messages...")
             self._publish_discovery()
+            logger.info("MQTT setup complete!")
         except Exception as e:
             logger.error(f"Failed to connect to MQTT: {e}")
+            logger.info("Continuing without MQTT functionality")
 
     def _publish_discovery(self):
         """Publish Home Assistant Auto-Discovery Config"""

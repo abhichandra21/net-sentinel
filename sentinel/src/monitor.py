@@ -83,12 +83,34 @@ def diagnose_issue(targets, quick_results, notifier):
 
 def main():
     config = load_config()
-    notifier = Notifier(config)
+    logger.info("Loading configuration...")
+    
+    # Create notifier with error handling
+    try:
+        logger.info("Creating MQTT notifier...")
+        notifier = Notifier(config)
+        logger.info(f"Notifier created. MQTT connected: {notifier.connected}")
+    except Exception as e:
+        logger.error(f"Failed to create notifier: {e}")
+        logger.info("Continuing without MQTT...")
+        # Create a dummy notifier for testing
+        class DummyNotifier:
+            def __init__(self): pass
+            def update_state(self, key, value): 
+                logger.info(f"Would update {key} to {value}")
+            def log_event(self, *args): pass
+            @property
+            def connected(self): return False
+        notifier = DummyNotifier()
+    
     targets = config['monitoring']['targets']
     interval = config['monitoring']['interval_seconds']
 
     logger.info("Network Sentinel Started.")
-    notifier.update_state("status", "Online")
+    if notifier.connected:
+        notifier.update_state("status", "Online")
+    else:
+        logger.info("MQTT not available, running in offline mode")
 
     # Schedule Speedtest every 6 hours
     schedule.every(6).hours.do(perform_speedtest, notifier=notifier)

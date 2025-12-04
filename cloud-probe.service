@@ -1,0 +1,15 @@
+[Unit]
+Description=Net Sentinel Cloud Probe
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/net-sentinel
+ExecStart=/usr/bin/python3 /opt/net-sentinel/main.py --target homeassistant.abhichandra.com --webhook https://homeassistant.abhichandra.com/api/webhook/net-sentinel-cloud-probe-2025 --interval 60
+Restart=always
+RestartSec=10
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/ubuntu/.local/bin
+
+[Install]
+WantedBy=multi-user.target

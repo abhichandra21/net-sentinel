@@ -1,0 +1,20 @@
+# Home Assistant Automation for Net Sentinel Cloud Probe
+# Create this automation via Settings > Automations > Create Automation > YAML Mode
+
+alias: "System: Update Cloud Probe"
+description: "Receives heartbeat from external VPS cloud probe"
+trigger:
+  - platform: webhook
+    webhook_id: "net-sentinel-cloud-probe-2025"  # Change this to a secure random string
+    local_only: false
+condition: []
+action:
+  - service: input_boolean.turn_{{ trigger.json.status == 'online' | iif('on', 'off') }}
+    target:
+      entity_id: input_boolean.cloud_probe_status
+  - service: input_number.set_value
+    target:
+      entity_id: input_number.cloud_probe_latency
+    data:
+      value: "{{ trigger.json.latency | default(0) }}"
+mode: single

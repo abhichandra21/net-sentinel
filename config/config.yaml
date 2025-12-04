@@ -1,17 +1,17 @@
 monitoring:
   interval_seconds: 30
   targets:
-    router: "192.168.1.1"  # Replace with your router IP
-    isp_gateway: "100.64.0.1" # Replace with your ISP Gateway/Next Hop if known (find via traceroute)
+    router: "192.168.1.50"  # Your HA IP (router will be detected via traceroute)
+    isp_gateway: "192.168.1.1" # Your router IP as ISP gateway
     public_dns_1: "8.8.8.8"
     public_dns_2: "1.1.1.1"
     http_target: "https://www.google.com"
 
 mqtt:
-  broker: "192.168.1.10" # Replace with your Home Assistant/Mosquitto IP
+  broker: "192.168.1.50" # Your Home Assistant IP
   port: 1883
-  username: "mqtt_user"
-  password: "mqtt_password"
+  username: "abhishek"
+  password: "Al211hama!"
   topic_prefix: "home/network/sentinel"
 
 logging:

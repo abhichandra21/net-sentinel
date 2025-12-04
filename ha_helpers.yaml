@@ -1,0 +1,19 @@
+# Home Assistant Helpers for Net Sentinel Cloud Probe
+# Add these via Settings > Devices & Services > Helpers
+
+# Toggle helper for Cloud Probe status
+input_boolean:
+  cloud_probe_status:
+    name: Cloud Probe Status
+    icon: mdi:cloud-check
+
+# Number helper for Cloud Probe latency
+input_number:
+  cloud_probe_latency:
+    name: Cloud Probe Latency
+    initial: 0
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: ms
+    icon: mdi:timer-outline
