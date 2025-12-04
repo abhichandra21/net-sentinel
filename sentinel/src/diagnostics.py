@@ -92,30 +92,45 @@ def run_speedtest():
         logger.error(f"Speedtest failed: {e}")
         return None
 
-def check_multi_dns(domains=None, dns_server="8.8.8.8"):
+def check_multi_dns(domains=None, dns_servers=None):
     """
-    Check DNS resolution for multiple domains.
+    Check DNS resolution for multiple domains across one or more DNS servers.
+    A domain is considered successful if at least one DNS server resolves it.
     Returns dict with success count, failed domains, and average latency.
     """
     if domains is None:
         domains = ["google.com", "cloudflare.com", "amazon.com", "github.com"]
 
-    results = []
-    failed = []
+    # Default to a well known public resolver if no servers are provided.
+    if not dns_servers:
+        dns_servers = ["8.8.8.8"]
+
+    latencies_ms = []
+    failed_domains = []
 
     for domain in domains:
-        success, latency = check_dns(domain, dns_server)
-        if success:
-            results.append(latency)
+        domain_success = False
+        domain_latencies_ms = []
+
+        for dns_server in dns_servers:
+            success, latency_ms = check_dns(domain, dns_server)
+            if success and latency_ms is not None:
+                domain_success = True
+                domain_latencies_ms.append(latency_ms)
+
+        if domain_success:
+            latencies_ms.extend(domain_latencies_ms)
         else:
-            failed.append(domain)
+            failed_domains.append(domain)
+
+    success_count = len(domains) - len(failed_domains)
 
     return {
-        'success_count': len(results),
+        'success_count': success_count,
         'total': len(domains),
-        'failed_domains': failed,
-        'avg_latency': round(statistics.mean(results), 2) if results else None,
-        'all_succeeded': len(failed) == 0
+        'failed_domains': failed_domains,
+        'avg_latency': round(statistics.mean(latencies_ms), 2) if latencies_ms else None,
+        'all_succeeded': success_count == len(domains)
     }
 
 def check_multi_http(endpoints=None):

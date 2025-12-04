@@ -96,12 +96,21 @@ Net Sentinel provides **clear fault codes** so you know exactly who to call:
     ```yaml
     monitoring:
       targets:
-        router: "192.168.1.1"      # Your local router IP
-        isp_gateway: "100.64.0.1"  # ISP Gateway (find via 'traceroute 8.8.8.8')
-        public_dns_1: "8.8.8.8"
-    
+        router: "192.168.1.1"       # Your local router IP
+        isp_gateway: "100.64.0.1"   # ISP Gateway (find via 'traceroute 8.8.8.8')
+        public_dns_1: "8.8.8.8"     # Primary DNS resolver to test
+        public_dns_2: "1.1.1.1"     # Optional secondary DNS resolver
+
+      # Optional: override default HTTP endpoints used for connectivity checks.
+      # If omitted, a sensible default set of endpoints is used.
+      http_endpoints:
+        - "http://captive.apple.com/hotspot-detect.html"
+        - "https://www.cloudflare.com/cdn-cgi/trace"
+        - "http://www.google.com/generate_204"
+        - "https://www.github.com"
+
     mqtt:
-      broker: "192.168.1.10"       # Your Home Assistant IP
+      broker: "192.168.1.10"        # Your Home Assistant IP
       username: "mqtt_user"
       password: "mqtt_password"
     ```

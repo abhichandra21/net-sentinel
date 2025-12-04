@@ -37,7 +37,7 @@ def load_config():
     with open(config_path, 'r') as f:
         return yaml.safe_load(f)
 
-def perform_health_check(targets):
+def perform_health_check(targets, http_endpoints=None):
     """
     Comprehensive health check across multiple layers.
     Returns dict with results from each check.
@@ -54,12 +54,27 @@ def perform_health_check(targets):
     if targets.get('isp_gateway'):
         results['isp_gateway'] = check_ping(targets['isp_gateway'])
 
-    # Layer 3: DNS resolution across multiple domains
-    dns_results = check_multi_dns()
+    # Layer 3: DNS resolution across multiple domains.
+    # Prefer DNS servers from configuration if provided so DNS failures
+    # reflect the actual resolvers in use rather than a hard coded default.
+    dns_servers = [
+        dns_ip for dns_ip in (
+            targets.get('public_dns_1'),
+            targets.get('public_dns_2')
+        ) if dns_ip
+    ]
+    if dns_servers:
+        dns_results = check_multi_dns(dns_servers=dns_servers)
+    else:
+        dns_results = check_multi_dns()
     results['dns'] = dns_results
 
-    # Layer 4: HTTP connectivity across multiple endpoints
-    http_results = check_multi_http()
+    # Layer 4: HTTP connectivity across multiple endpoints.
+    # Allow overriding default endpoints from configuration when provided.
+    if http_endpoints:
+        http_results = check_multi_http(endpoints=http_endpoints)
+    else:
+        http_results = check_multi_http()
     results['http'] = http_results
 
     # Track latency for jitter calculation
@@ -159,26 +174,71 @@ def diagnose_issue(targets, results, notifier):
         notifier.update_state("fault_detail", "ISP gateway down - contact your ISP")
         return blame
 
-    # Layer 3: DNS FAILURES (likely ISP's DNS servers)
+    # Layer 3: DNS FAILURES (likely resolver or upstream DNS issues)
     dns_check = results.get('dns', {})
     if not dns_check.get('all_succeeded', True):
         failed_count = len(dns_check.get('failed_domains', []))
         total = dns_check.get('total', 0)
 
         if failed_count == total:
-            # Complete DNS failure
-            blame = "ISP_DNS"
-            logger.error(f"⚠️  FAULT: ISP DNS - All DNS lookups failed")
-            notifier.log_event("OUTAGE", "ISP_DNS", f"All DNS resolution failed - ISP DNS servers down", "CRITICAL")
-            notifier.update_state("blame", "ISP_DNS")
-            notifier.update_state("fault_detail", f"DNS completely failed - ISP DNS issue")
+            # Complete DNS failure across all tested resolvers.
+            # If HTTP checks also show a complete failure, treat this as a
+            # broader upstream connectivity or routing problem rather than a
+            # pure DNS issue.
+            http_snapshot = results.get('http', {})
+            http_failed_total = False
+            if not http_snapshot.get('all_succeeded', True):
+                http_failed_count = len(http_snapshot.get('failed_endpoints', []))
+                http_total = http_snapshot.get('total', 0)
+                if http_total and http_failed_count == http_total:
+                    http_failed_total = True
+
+            if http_failed_total:
+                blame = "ISP_ROUTING"
+                logger.error("FAULT: ISP ROUTING - DNS and HTTP checks both failed")
+                trace = run_traceroute("8.8.8.8")
+                notifier.log_event(
+                    "OUTAGE",
+                    "ISP",
+                    f"DNS and HTTP checks failed. Trace: {trace[-200:]}",
+                    "CRITICAL",
+                )
+                notifier.update_state("blame", "ISP_ROUTING")
+                notifier.update_state(
+                    "fault_detail",
+                    "DNS and HTTP failed - likely upstream connectivity or routing issue",
+                )
+            else:
+                blame = "ISP_DNS"
+                logger.error("FAULT: ISP DNS - All DNS lookups failed")
+                notifier.log_event(
+                    "OUTAGE",
+                    "ISP_DNS",
+                    "All DNS resolution failed - DNS servers down or unreachable",
+                    "CRITICAL",
+                )
+                notifier.update_state("blame", "ISP_DNS")
+                notifier.update_state(
+                    "fault_detail",
+                    "DNS completely failed - DNS resolver issue",
+                )
         else:
             # Partial DNS failure
             blame = "DEGRADED_DNS"
-            logger.warning(f"⚠️  DEGRADED: DNS - {failed_count}/{total} DNS lookups failed")
-            notifier.log_event("DEGRADED", "DNS", f"{failed_count}/{total} DNS failed: {dns_check.get('failed_domains')}", "WARNING")
+            logger.warning(
+                f"DEGRADED: DNS - {failed_count}/{total} DNS lookups failed"
+            )
+            notifier.log_event(
+                "DEGRADED",
+                "DNS",
+                f"{failed_count}/{total} DNS failed: {dns_check.get('failed_domains')}",
+                "WARNING",
+            )
             notifier.update_state("blame", "DEGRADED_DNS")
-            notifier.update_state("fault_detail", f"Partial DNS failure - some domains unreachable")
+            notifier.update_state(
+                "fault_detail",
+                "Partial DNS failure - some domains unreachable",
+            )
 
         return blame
 
@@ -245,6 +305,7 @@ def main():
         notifier = DummyNotifier()
     
     targets = config['monitoring']['targets']
+    http_endpoints = config['monitoring'].get('http_endpoints')
     interval = config['monitoring']['interval_seconds']
 
     logger.info("Network Sentinel Started.")
@@ -264,7 +325,7 @@ def main():
             schedule.run_pending()
 
             # Main Health Check
-            results = perform_health_check(targets)
+            results = perform_health_check(targets, http_endpoints=http_endpoints)
 
             # Determine health status
             dns_healthy = results.get('dns', {}).get('all_succeeded', False)
