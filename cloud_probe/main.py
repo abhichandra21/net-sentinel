@@ -61,7 +61,8 @@ def main():
         is_up, latency = check_home_connectivity(args.target)
 
         if is_up:
-            logger.info(f"Home is UP. Latency: {latency}ms")
+            latency_str = f"{latency:.2f}" if latency is not None else "unknown"
+            logger.info(f"Home is UP. Latency: {latency_str}ms")
         else:
             logger.warning("Home is DOWN.")
 
