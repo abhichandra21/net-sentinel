@@ -1,179 +1,158 @@
 # Comprehensive Internet Monitor - Home Assistant Setup
-# This setup provides clear fault attribution: YOUR equipment vs ISP issues
+# Updated with Router Health Monitoring and Enhanced Fault Attribution
 
 # MQTT Sensors Configuration
-# Add to configuration.yaml or create a new file in config/packages/
+# Add to mqtt.yaml or create mqtt: section in configuration.yaml
 
 mqtt:
   sensor:
-    # Primary Status
+    # ============================================================================
+    # PRIMARY STATUS
+    # ============================================================================
     - name: "Internet Status"
-      state_topic: "home/network/sentinel/status"
-      icon: mdi:network
-      availability_topic: "home/network/sentinel/status"
+      state_topic: "home/network/sentinel/status/state"
+      icon: mdi:web-check
+      unique_id: internet_status
+      # Values: HEALTHY, OUTAGE_*, DEGRADED_*
 
-    # Fault Attribution - WHO IS TO BLAME?
     - name: "Internet Fault Blame"
-      state_topic: "home/network/sentinel/blame"
-      icon: mdi:alert-circle
+      state_topic: "home/network/sentinel/blame/state"
+      icon: mdi:flash-alert
+      unique_id: internet_fault_blame
+      # WHO IS TO BLAME?
       # Possible values:
       # - NONE (healthy)
-      # - YOUR_ROUTER (your equipment down)
-      # - ISP_EQUIPMENT (ISP gateway down)
+      # - ROUTER_CRITICAL (router health < 30/100)
+      # - ROUTER_DEGRADED (router health < 60/100)
+      # - ROUTER_DOWN (router not responding)
+      # - ISP_EQUIPMENT (ISP gateway unreachable)
       # - ISP_DNS (ISP DNS servers down)
       # - ISP_ROUTING (ISP routing/connection issue)
       # - DEGRADED_DNS (partial DNS failure)
       # - DEGRADED_INTERNET (partial connectivity)
-      # - DEGRADED_QUALITY (high jitter)
+      # - DEGRADED_QUALITY (high jitter >50ms)
       # - TRANSIENT (temporary issue)
 
     - name: "Internet Fault Detail"
-      state_topic: "home/network/sentinel/fault_detail"
-      icon: mdi:information
+      state_topic: "home/network/sentinel/fault_detail/state"
+      icon: mdi:text-box-outline
+      unique_id: internet_fault_detail
 
-    # Latency Metrics
-    - name: "Router Latency"
-      state_topic: "home/network/sentinel/router_latency"
+    # ============================================================================
+    # ROUTER HEALTH (NEW)
+    # ============================================================================
+    - name: "Router Health Score"
+      state_topic: "home/network/sentinel/router_health_score/state"
+      unit_of_measurement: ""
+      icon: mdi:heart-pulse
+      unique_id: router_health_score
+      # 0-100 score based on packet loss, latency, jitter
+      # ≥80 = healthy, 60-79 = degraded, <60 = critical
+
+    - name: "Router Packet Loss"
+      state_topic: "home/network/sentinel/router_packet_loss/state"
+      unit_of_measurement: "%"
+      icon: mdi:package-down
+      unique_id: router_packet_loss
+      # Should be 0%, any packet loss indicates router issues
+
+    - name: "Router Jitter Internal"
+      state_topic: "home/network/sentinel/router_jitter_internal/state"
       unit_of_measurement: "ms"
-      icon: mdi:router-network
+      icon: mdi:sine-wave
+      device_class: duration
+      unique_id: router_jitter_internal
+      # Should be < 2ms, measures latency variance to router
 
-    - name: "DNS Latency"
-      state_topic: "home/network/sentinel/dns_latency"
+    # ============================================================================
+    # LATENCY METRICS
+    # ============================================================================
+    - name: "Internet Router Latency"
+      state_topic: "home/network/sentinel/router_latency/state"
+      unit_of_measurement: "ms"
+      icon: mdi:router-wireless
+      device_class: duration
+      unique_id: internet_router_latency
+
+    - name: "Internet DNS Latency"
+      state_topic: "home/network/sentinel/dns_latency/state"
       unit_of_measurement: "ms"
       icon: mdi:dns
+      device_class: duration
+      unique_id: internet_dns_latency
 
-    - name: "HTTP Latency"
-      state_topic: "home/network/sentinel/http_latency"
+    - name: "Internet HTTP Latency"
+      state_topic: "home/network/sentinel/http_latency/state"
       unit_of_measurement: "ms"
       icon: mdi:web
+      device_class: duration
+      unique_id: internet_http_latency
 
-    - name: "Jitter"
-      state_topic: "home/network/sentinel/jitter"
+    - name: "Internet Jitter"
+      state_topic: "home/network/sentinel/jitter/state"
       unit_of_measurement: "ms"
-      icon: mdi:chart-line-variant
+      icon: mdi:waveform
+      device_class: duration
+      unique_id: internet_jitter
       # High jitter (>50ms) indicates unstable connection
 
-    # Success Rates
-    - name: "DNS Success Rate"
-      state_topic: "home/network/sentinel/dns_success_rate"
+    # ============================================================================
+    # SUCCESS RATES
+    # ============================================================================
+    - name: "Internet DNS Success Rate"
+      state_topic: "home/network/sentinel/dns_success_rate/state"
       icon: mdi:check-network
+      unique_id: internet_dns_success_rate
+      # Format: "4/4" (successful/total)
 
-    - name: "HTTP Success Rate"
-      state_topic: "home/network/sentinel/http_success_rate"
-      icon: mdi:check-network-outline
+    - name: "Internet HTTP Success Rate"
+      state_topic: "home/network/sentinel/http_success_rate/state"
+      icon: mdi:check-network
+      unique_id: internet_http_success_rate
+      # Format: "4/4" (successful/total)
 
-    # Speed Test Results
-    - name: "Download Speed"
-      state_topic: "home/network/sentinel/download_speed"
-      unit_of_measurement: "Mbps"
-      icon: mdi:download-network
+    # ============================================================================
+    # SPEED TEST RESULTS
+    # ============================================================================
+    - name: "Internet Download Speed"
+      state_topic: "home/network/sentinel/download_speed/state"
+      unit_of_measurement: "Mbit/s"
+      icon: mdi:speedometer
+      device_class: data_rate
+      unique_id: internet_download_speed
 
-    - name: "Speedtest Latency"
-      state_topic: "home/network/sentinel/speedtest_latency"
+    - name: "Internet Speedtest Latency"
+      state_topic: "home/network/sentinel/speedtest_latency/state"
       unit_of_measurement: "ms"
       icon: mdi:speedometer
+      device_class: duration
+      unique_id: internet_speedtest_latency
 
-# Dashboard Configuration
-# Add to Lovelace dashboard via GUI or dashboard YAML
+# ============================================================================
+# AUTOMATION EXAMPLES
+# ============================================================================
 
-type: vertical-stack
-cards:
-  # Main Status Card
-  - type: entities
-    title: 🌐 Internet Monitor
-    entities:
-      - entity: sensor.internet_status
-        name: Status
-      - entity: sensor.internet_fault_blame
-        name: "⚠️ Fault Attribution"
-        # This tells you WHO TO BLAME
-      - entity: sensor.internet_fault_detail
-        name: Details
-
-  # Fault Attribution Helper
-  - type: markdown
-    content: |
-      **Fault Guide:**
-      - `YOUR_ROUTER` → Check router/modem power
-      - `ISP_EQUIPMENT` → ISP gateway down - call ISP
-      - `ISP_DNS` → ISP DNS servers down - call ISP
-      - `ISP_ROUTING` → ISP routing issue - call ISP
-      - `DEGRADED_*` → Partial issues - monitor
-
-  # Latency Monitoring
-  - type: grid
-    columns: 3
-    cards:
-      - type: gauge
-        entity: sensor.router_latency
-        name: Router
-        min: 0
-        max: 100
-        severity:
-          green: 0
-          yellow: 20
-          red: 50
-
-      - type: gauge
-        entity: sensor.dns_latency
-        name: DNS
-        min: 0
-        max: 200
-        severity:
-          green: 0
-          yellow: 50
-          red: 100
-
-      - type: gauge
-        entity: sensor.http_latency
-        name: HTTP
-        min: 0
-        max: 500
-        severity:
-          green: 0
-          yellow: 200
-          red: 400
-
-  # Connection Quality
-  - type: grid
-    columns: 2
-    cards:
-      - type: sensor
-        entity: sensor.jitter
-        name: Jitter (Stability)
-        graph: line
-        detail: 2
-        # Low jitter (<20ms) = stable
-        # High jitter (>50ms) = unstable
-
-      - type: glance
-        entities:
-          - entity: sensor.dns_success_rate
-            name: DNS Success
-          - entity: sensor.http_success_rate
-            name: HTTP Success
-
-  # Speed Test Results
-  - type: history-graph
-    title: Bandwidth (Mbps)
-    hours_to_show: 48
-    entities:
-      - entity: sensor.download_speed
-        name: Download
-
-  # Detailed History
-  - type: history-graph
-    title: Latency Trends (24h)
-    hours_to_show: 24
-    entities:
-      - entity: sensor.router_latency
-      - entity: sensor.dns_latency
-      - entity: sensor.http_latency
-      - entity: sensor.jitter
-
-# Automation Example - Alert on ISP Issues
+# Automation: Alert on Router Issues
 automation:
+  - alias: "Alert: Router Health Critical"
+    description: "Alert when router health drops below 60/100"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.router_health_score
+        below: 60
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "🔧 Router Health Critical"
+          message: >
+            Router health score: {{ states('sensor.router_health_score') }}/100
+            Packet Loss: {{ states('sensor.router_packet_loss') }}%
+            Jitter: {{ states('sensor.router_jitter_internal') }}ms
+          data:
+            priority: high
+
   - alias: "Alert: ISP Issue Detected"
+    description: "Alert when ISP is at fault"
     trigger:
       - platform: state
         entity_id: sensor.internet_fault_blame
@@ -187,20 +166,24 @@ automation:
     action:
       - service: notify.mobile_app
         data:
-          title: "🚨 ISP Issue Detected"
+          title: "📞 ISP Issue Detected"
           message: "{{ states('sensor.internet_fault_detail') }}"
           data:
             priority: high
 
-  - alias: "Alert: Your Router Down"
+  - alias: "Alert: Router Down"
+    description: "Alert when router is completely down"
     trigger:
       - platform: state
         entity_id: sensor.internet_fault_blame
-        to: "YOUR_ROUTER"
+        to: "ROUTER_DOWN"
+      - platform: state
+        entity_id: sensor.internet_fault_blame
+        to: "ROUTER_CRITICAL"
     action:
       - service: notify.mobile_app
         data:
-          title: "⚠️ Your Router is Down"
-          message: "Check router power and cables"
+          title: "⚠️ Router Issue"
+          message: "{{ states('sensor.internet_fault_detail') }} - Check router power and reboot"
           data:
             priority: high

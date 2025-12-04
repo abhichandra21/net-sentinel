@@ -1,6 +1,6 @@
 # Net Sentinel 🛡️
 
-**Net Sentinel** is a dual-probe network monitoring solution designed to diagnose intermittent internet connectivity issues. It triangulates problems by monitoring your connection from both **inside** (your local network) and **outside** (a cloud VPS).
+**Net Sentinel** is a dual-probe network monitoring solution designed to diagnose intermittent internet connectivity issues with **clear fault attribution**. It tells you **WHO IS TO BLAME** - your router, your ISP, or network degradation.
 
 ## 🏗 Architecture
 
@@ -8,24 +8,81 @@ The system consists of two independent components that report to **Home Assistan
 
 1.  **Local Sentinel (Docker)**:
     *   Runs on your home network (Raspberry Pi, NAS, Server).
-    *   Monitors: Router -> ISP Gateway -> Public DNS -> Website Reachability.
-    *   Checks: Ping latency, DNS resolution, periodic Speedtests.
-    *   Reporting: **MQTT** (Auto-Discovery).
-    *   *Diagnoses if the issue is your Router, Modem, or ISP.*
+    *   Monitors: Router Health → ISP Gateway → Public DNS → Website Reachability.
+    *   Checks: Ping latency, packet loss, jitter, DNS resolution, periodic Speedtests.
+    *   Reporting: **MQTT** with Auto-Discovery.
+    *   *Diagnoses if the issue is your Router, Modem, or ISP with detailed health scoring.*
 
 2.  **Cloud Probe (Python)**:
     *   Runs on an external VPS (AWS, GCP, DigitalOcean).
-    *   Monitors: Your Home Public IP / DDNS Hostname.
+    *   Monitors: Your Home Public IP / DDNS Hostname from outside.
     *   Reporting: **Home Assistant Webhook** (via public internet).
     *   *Diagnoses if your home is reachable from the outside (Routing/Public IP issues).*
+
+---
+
+## 🚨 Fault Attribution System
+
+Net Sentinel provides **clear fault codes** so you know exactly who to call:
+
+| Fault Code          | Meaning                      | Action Required                        |
+|---------------------|------------------------------|----------------------------------------|
+| `NONE`              | All systems healthy          | ✓ No action needed                     |
+| `ROUTER_CRITICAL`   | Router health < 30/100       | 🔧 **Reboot router or replace**        |
+| `ROUTER_DEGRADED`   | Router health 30-60/100      | 🔧 **Check router load/performance**   |
+| `ROUTER_DOWN`       | Router not responding        | 🔧 **Check power and cables**          |
+| `ISP_EQUIPMENT`     | ISP gateway unreachable      | 📞 **Call ISP - their equipment down** |
+| `ISP_DNS`           | ISP DNS servers failing      | 📞 **Call ISP - DNS issue**            |
+| `ISP_ROUTING`       | ISP routing problem          | 📞 **Call ISP - routing issue**        |
+| `DEGRADED_DNS`      | Partial DNS failures         | ⏳ Monitor - may auto-resolve          |
+| `DEGRADED_INTERNET` | Partial connectivity loss    | ⏳ Monitor - may auto-resolve          |
+| `DEGRADED_QUALITY`  | High jitter (>50ms)          | ⏳ Monitor connection quality          |
+| `TRANSIENT`         | Temporary glitch resolved    | ✓ Issue was temporary                  |
+
+---
+
+## 📊 Sensors Available
+
+### Router Health Sensors (NEW)
+- **`sensor.router_health_score`**: 0-100 health score
+  - ≥80 = Healthy (green)
+  - 60-79 = Degraded (yellow)
+  - <60 = Critical (red)
+  - Based on: packet loss, latency, jitter
+
+- **`sensor.router_packet_loss`**: Percentage of packets lost (should be 0%)
+- **`sensor.router_jitter_internal`**: Latency variance to router (should be <2ms)
+
+### Status Sensors
+- **`sensor.internet_status`**: Overall status (HEALTHY, OUTAGE_*, DEGRADED_*)
+- **`sensor.internet_fault_blame`**: WHO TO BLAME fault code
+- **`sensor.internet_fault_detail`**: Human-readable explanation
+
+### Latency Metrics
+- **`sensor.internet_router_latency`**: Ping to local router
+- **`sensor.internet_dns_latency`**: DNS resolution time
+- **`sensor.internet_http_latency`**: HTTP request time
+- **`sensor.internet_jitter`**: Connection stability (low = good)
+
+### Reliability Metrics
+- **`sensor.internet_dns_success_rate`**: Format "4/4" (successful/total)
+- **`sensor.internet_http_success_rate`**: Format "4/4" (successful/total)
+
+### Speed Test
+- **`sensor.internet_download_speed`**: Download bandwidth in Mbit/s
+- **`sensor.internet_speedtest_latency`**: Latency during speed test
+
+### Cloud Probe
+- **`input_boolean.cloud_probe_status`**: Is HA reachable from internet?
+- **`input_number.cloud_probe_latency`**: Latency from VPS to HA
 
 ---
 
 ## 🚀 Part 1: Local Sentinel Setup
 
 ### Prerequisites
-*   Docker & Docker Compose.
-*   Home Assistant with an MQTT Broker (e.g., Mosquitto) running.
+*   Docker & Docker Compose
+*   Home Assistant with MQTT Broker (e.g., Mosquitto)
 
 ### Installation
 1.  **Clone the repository**:
@@ -40,11 +97,11 @@ The system consists of two independent components that report to **Home Assistan
     monitoring:
       targets:
         router: "192.168.1.1"      # Your local router IP
-        isp_gateway: "100.64.0.1"  # Your ISP Gateway (Find via 'traceroute 8.8.8.8', usually hop #2)
+        isp_gateway: "100.64.0.1"  # ISP Gateway (find via 'traceroute 8.8.8.8')
         public_dns_1: "8.8.8.8"
     
-mqtt:
-      broker: "192.168.1.10"       # Your Home Assistant / MQTT Broker IP
+    mqtt:
+      broker: "192.168.1.10"       # Your Home Assistant IP
       username: "mqtt_user"
       password: "mqtt_password"
     ```
@@ -54,127 +111,114 @@ mqtt:
     docker-compose up -d --build
     ```
 
-### Integration
-Net Sentinel uses **MQTT Discovery**. Once running, go to HA Settings > **Devices & Services** > **MQTT**. You will see a new device named **"Network Sentinel"** containing:
-*   `router_latency`, `internet_latency`
-*   `download_speed`, `upload_speed`
-*   `network_status` (Online, Diagnosing, LOCAL_FAILURE, ISP_FAILURE, etc.)
+### Home Assistant Integration
+
+#### Option 1: Quick Setup (Copy/Paste)
+See `ha_complete_setup.yaml` for a ready-to-use configuration.
+
+#### Option 2: Manual Setup
+
+1. **Add MQTT Sensors**
+   Create or edit `mqtt.yaml` in your HA config directory (see `ha_comprehensive_setup.yaml` for full config).
+
+2. **Add Dashboard**
+   Copy the contents of `ha_dashboard.yaml` to a new Lovelace dashboard.
+
+3. **Restart Home Assistant**
+   ```bash
+   ha core restart
+   ```
+
+After restart, all sensors will auto-discover via MQTT. Go to **Settings > Devices & Services > MQTT** to see the "Network Sentinel" device.
 
 ---
 
-## ☁️ Part 2: Cloud Probe Setup (Remote)
+## ☁️ Part 2: Cloud Probe Setup (Optional)
 
-Since your Home Assistant is exposed to the internet, the Cloud Probe sends data directly via a Webhook.
+The Cloud Probe monitors your home from **outside**, detecting issues with public IP routing or incoming connectivity.
 
 ### 1. Prepare Home Assistant
-We need "Helpers" to store the Cloud Probe data and an Automation to receive the Webhook.
 
 1.  **Create Helpers** (Settings > Devices > Helpers):
-    *   **Toggle** (Input Boolean): Name: `Cloud Probe Status`, Entity ID: `input_boolean.cloud_probe_status`
-    *   **Number** (Input Number): Name: `Cloud Probe Latency`, Entity ID: `input_number.cloud_probe_latency` (0 to 2000, step 1).
+    *   **Toggle**: `Cloud Probe Status` (Entity: `input_boolean.cloud_probe_status`)
+    *   **Number**: `Cloud Probe Latency` (Entity: `input_number.cloud_probe_latency`, 0-2000, step 1)
 
 2.  **Create Automation**:
-    Create a new automation, switch to **YAML Mode**, and paste this:
-    ```yaml
-    alias: "System: Update Cloud Probe"
-    description: "Receives heartbeat from external VPS"
-    trigger:
-      - platform: webhook
-        webhook_id: "my-secure-probe-token-123"  # <--- CHANGE THIS to a random string
-        local_only: false
-    condition: []
-    action:
-      - service: input_boolean.turn_{{ trigger.json.status == 'online' | iif('on', 'off') }}
-        target:
-          entity_id: input_boolean.cloud_probe_status
-      - service: input_number.set_value
-        target:
-          entity_id: input_number.cloud_probe_latency
-        data:
-          value: "{{ trigger.json.latency | default(0) }}"
-    mode: single
-    ```
+    See `ha_complete_setup.yaml` for the webhook automation config.
 
 ### 2. Deploy on VPS
-1.  **Copy Files**: Upload `cloud_probe/main.py` and `sentinel/requirements.txt` to your VPS.
-2.  **Install Dependencies**:
+
+1.  **Upload files** to your VPS:
+    ```bash
+    scp -r cloud_probe/ user@your-vps.com:/root/net-sentinel/
+    ```
+
+2.  **Install dependencies**:
     ```bash
     pip3 install ping3 requests
     ```
-3.  **Test Run**:
+
+3.  **Test run**:
     ```bash
     python3 cloud_probe/main.py \
-      --target <YOUR_HOME_DDNS_OR_IP> \
-      --webhook https://<YOUR_HA_DOMAIN>/api/webhook/my-secure-probe-token-123
+      --target your-home.duckdns.org \
+      --webhook https://your-ha.com/api/webhook/net-sentinel-cloud-probe-2025
     ```
 
-### 3. Run as a Service (Systemd)
-To keep it running in the background:
-
-1.  Create `/etc/systemd/system/cloud-probe.service`:
-    ```ini
-    [Unit]
-    Description=Net Sentinel Cloud Probe
-    After=network.target
-
-    [Service]
-    User=root
-    WorkingDirectory=/root/net-sentinel
-    ExecStart=/usr/bin/python3 cloud_probe/main.py --target myhome.duckdns.org --webhook https://myha.com/api/webhook/token
-    Restart=always
-    RestartSec=10
-
-    [Install]
-    WantedBy=multi-user.target
-    ```
-2.  Enable it: `systemctl enable --now cloud-probe`
+4.  **Run as a service**:
+    See `deploy_cloud_probe.sh` for systemd service setup.
 
 ---
 
-## 📊 Dashboard Example
+## 📊 Dashboard Overview
 
-Add this YAML to your Lovelace dashboard to visualize the stack:
+The included dashboard (`ha_dashboard.yaml`) provides:
 
-```yaml
-type: vertical-stack
-cards:
-  - type: entities
-    title: Network Health
-    entities:
-      - entity: sensor.netsentinel_network_status
-        name: Local Status
-      - entity: input_boolean.cloud_probe_status
-        name: Cloud Reachability
-      - entity: sensor.netsentinel_last_outage_reason
-  - type: grid
-    columns: 2
-    cards:
-      - type: gauge
-        entity: sensor.netsentinel_internet_latency
-        name: Ping (Out)
-        severity:
-          green: 0
-          yellow: 50
-          red: 100
-      - type: gauge
-        entity: input_number.cloud_probe_latency
-        name: Ping (In)
-        severity:
-          green: 0
-          yellow: 50
-          red: 100
-  - type: history-graph
-    hours_to_show: 24
-    entities:
-      - entity: sensor.netsentinel_download_speed
-      - entity: sensor.netsentinel_upload_speed
-```
+1. **Critical Status** - Immediate health indicator
+2. **Router Health** - Gauge showing 0-100 health score with conditional packet loss/jitter details
+3. **Fault Attribution** - Shows WHO TO BLAME with recommended actions
+4. **Performance** - Download speed and ping metrics
+5. **Connection Quality** - DNS, HTTP latency, and jitter
+6. **Reliability** - Success rates for DNS/HTTP requests + cloud probe status
+7. **Advanced Diagnostics** - Detailed view of all metrics
+8. **Historical Trends** - 24-hour graphs
+
+---
 
 ## 🛠 Troubleshooting
 
-*   **Local Probe**:
-    *   *Logs*: `docker logs -f net-sentinel`
-    *   *Permission Denied*: The container runs as root to allow ICMP/Ping. If you have strict security policies, you may need to adjust `cap_add`.
-*   **Cloud Probe**:
-    *   *404 Error*: Check your Webhook URL and ensure `local_only: false` is set in the HA Automation.
-    *   *Ping Failures*: Ensure your home router allows ICMP Echo Requests from the WAN side (check Firewall settings).
+### Local Sentinel
+*   **Check logs**: `docker logs -f net-sentinel`
+*   **MQTT not connecting**: Verify broker IP, username, password in `config/config.yaml`
+*   **No sensors in HA**: Restart HA after first run, check MQTT integration
+
+### Cloud Probe
+*   **404 webhook error**: Ensure automation has `local_only: false`
+*   **Ping failures**: Check home firewall allows ICMP from WAN
+*   **Probe shows offline**: Verify VPS can reach your public IP/DDNS
+
+### Router Health Always Low
+*   **Check router**: May be overloaded or failing
+*   **Verify IP**: Ensure `router:` in config is your actual gateway
+*   **Network congestion**: High local traffic can cause packet loss
+
+---
+
+## 📝 Updates in This Version
+
+- ✅ **Router Health Scoring**: 0-100 score with packet loss & jitter metrics
+- ✅ **Enhanced Fault Codes**: New ROUTER_CRITICAL, ROUTER_DEGRADED codes
+- ✅ **Conditional Dashboard**: Router details only show when health < 80
+- ✅ **Fault Attribution UI**: Clear "Who's Responsible?" section with actions
+- ✅ **Cloud Probe Integration**: External monitoring via webhook
+- ✅ **Modern Mushroom Cards**: Clean, minimal dashboard design
+
+---
+
+## 📄 License
+
+MIT License - See LICENSE file for details.
+
+## 🤝 Contributing
+
+Issues and pull requests welcome! Please test thoroughly before submitting.
