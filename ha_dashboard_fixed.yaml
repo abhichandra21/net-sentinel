@@ -1,21 +1,21 @@
-# Home Assistant Lovelace Dashboard for Net Sentinel
-# Add this to your Lovelace dashboard
+# Fixed Home Assistant Lovelace Dashboard for Net Sentinel
+# Updated with correct entity IDs from MQTT discovery
 
 type: vertical-stack
 cards:
   - type: entities
     title: Network Health
     entities:
-      - entity: sensor.netsentinel_network_status
+      - entity: sensor.network_sentinel_netsentinel_network_status
         name: Local Status
       - entity: input_boolean.cloud_probe_status
         name: Cloud Reachability
-      - entity: sensor.netsentinel_last_outage_reason
+      - entity: sensor.network_sentinel_netsentinel_last_outage_reason
   - type: grid
     columns: 2
     cards:
       - type: gauge
-        entity: sensor.netsentinel_internet_latency
+        entity: sensor.network_sentinel_netsentinel_router_latency
         name: Ping (Out)
         severity:
           green: 0
@@ -31,5 +31,5 @@ cards:
   - type: history-graph
     hours_to_show: 24
     entities:
-      - entity: sensor.netsentinel_download_speed
-      - entity: sensor.netsentinel_upload_speed
+      - entity: sensor.network_sentinel_netsentinel_download_speed
+      - entity: sensor.network_sentinel_netsentinel_upload_speed

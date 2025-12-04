@@ -1,11 +1,14 @@
 monitoring:
   interval_seconds: 30
   targets:
-    router: "192.168.1.50"  # Your HA IP (router will be detected via traceroute)
-    isp_gateway: "192.168.1.1" # Your router IP as ISP gateway
-    public_dns_1: "8.8.8.8"
-    public_dns_2: "1.1.1.1"
-    http_target: "https://www.google.com"
+    router: "192.168.1.1"        # Your router/gateway IP
+    isp_gateway: null             # ISP's first hop (set if known, or leave null)
+    public_dns_1: "8.8.8.8"      # For legacy compatibility
+    public_dns_2: "1.1.1.1"      # For legacy compatibility
+
+  speedtest:
+    use_cloudflare: true          # Use Cloudflare speed test (faster)
+    interval_hours: 6             # Run speed test every N hours
 
 mqtt:
   broker: "192.168.1.50" # Your Home Assistant IP

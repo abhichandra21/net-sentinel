@@ -2,6 +2,8 @@ import subprocess
 import logging
 import requests
 import dns.resolver
+import statistics
+import time
 from ping3 import ping
 
 logger = logging.getLogger("Diagnostics")
@@ -23,27 +25,32 @@ def check_ping(host, count=1, timeout=2):
 def check_dns(hostname="google.com", dns_server="8.8.8.8"):
     """
     Tries to resolve a hostname using a specific DNS server.
-    Returns True if successful.
+    Returns (success: bool, latency_ms: float) tuple.
     """
     resolver = dns.resolver.Resolver()
     resolver.nameservers = [dns_server]
     try:
+        start = time.time()
         resolver.resolve(hostname, 'A', lifetime=3)
-        return True
+        latency = (time.time() - start) * 1000  # Convert to ms
+        return (True, round(latency, 2))
     except Exception as e:
         logger.warning(f"DNS check failed for {hostname} via {dns_server}: {e}")
-        return False
+        return (False, None)
 
 def check_http(url):
     """
-    Returns True if HTTP GET status is 200-299.
+    Returns (success: bool, latency_ms: float) tuple.
     """
     try:
+        start = time.time()
         r = requests.get(url, timeout=5)
-        return r.status_code >= 200 and r.status_code < 300
+        latency = (time.time() - start) * 1000  # Convert to ms
+        success = r.status_code >= 200 and r.status_code < 300
+        return (success, round(latency, 2) if success else None)
     except Exception as e:
         logger.warning(f"HTTP check failed for {url}: {e}")
-        return False
+        return (False, None)
 
 def run_traceroute(target="8.8.8.8"):
     """
@@ -75,7 +82,7 @@ def run_speedtest():
     Runs a speedtest and returns download/upload in Mbps.
     """
     try:
-        # Using speedtest-cli via subprocess to avoid blocking the main thread indefinitely 
+        # Using speedtest-cli via subprocess to avoid blocking the main thread indefinitely
         # if we were using the library in-process without threading.
         # Also, simple JSON output is easy to parse.
         cmd = ["speedtest-cli", "--simple"]
@@ -83,4 +90,106 @@ def run_speedtest():
         return result.stdout
     except Exception as e:
         logger.error(f"Speedtest failed: {e}")
+        return None
+
+def check_multi_dns(domains=None, dns_server="8.8.8.8"):
+    """
+    Check DNS resolution for multiple domains.
+    Returns dict with success count, failed domains, and average latency.
+    """
+    if domains is None:
+        domains = ["google.com", "cloudflare.com", "amazon.com", "github.com"]
+
+    results = []
+    failed = []
+
+    for domain in domains:
+        success, latency = check_dns(domain, dns_server)
+        if success:
+            results.append(latency)
+        else:
+            failed.append(domain)
+
+    return {
+        'success_count': len(results),
+        'total': len(domains),
+        'failed_domains': failed,
+        'avg_latency': round(statistics.mean(results), 2) if results else None,
+        'all_succeeded': len(failed) == 0
+    }
+
+def check_multi_http(endpoints=None):
+    """
+    Check HTTP connectivity to multiple reliable endpoints.
+    Returns dict with success count, failed endpoints, and average latency.
+    """
+    if endpoints is None:
+        endpoints = [
+            "http://captive.apple.com/hotspot-detect.html",  # Apple connectivity check
+            "https://www.cloudflare.com/cdn-cgi/trace",      # Cloudflare trace
+            "http://www.google.com/generate_204",            # Google no-content
+            "https://www.github.com"                          # GitHub
+        ]
+
+    results = []
+    failed = []
+
+    for url in endpoints:
+        success, latency = check_http(url)
+        if success:
+            results.append(latency)
+        else:
+            failed.append(url)
+
+    return {
+        'success_count': len(results),
+        'total': len(endpoints),
+        'failed_endpoints': failed,
+        'avg_latency': round(statistics.mean(results), 2) if results else None,
+        'all_succeeded': len(failed) == 0
+    }
+
+def calculate_jitter(latency_samples):
+    """
+    Calculate jitter (standard deviation of latency) from samples.
+    latency_samples should be a list of latency values in ms.
+    """
+    if not latency_samples or len(latency_samples) < 2:
+        return None
+
+    try:
+        return round(statistics.stdev(latency_samples), 2)
+    except Exception as e:
+        logger.warning(f"Failed to calculate jitter: {e}")
+        return None
+
+def run_cloudflare_speedtest():
+    """
+    Run Cloudflare speed test using their API.
+    Returns dict with download/upload speeds in Mbps.
+    """
+    try:
+        # Cloudflare speed test endpoint
+        # Using a simple download test
+        test_url = "https://speed.cloudflare.com/__down?bytes=25000000"  # 25MB download
+
+        start = time.time()
+        response = requests.get(test_url, timeout=30)
+        duration = time.time() - start
+
+        if response.status_code == 200:
+            bytes_downloaded = len(response.content)
+            # Convert to Mbps: (bytes * 8) / (duration * 1000000)
+            download_mbps = round((bytes_downloaded * 8) / (duration * 1000000), 2)
+
+            return {
+                'download_mbps': download_mbps,
+                'latency_ms': round(duration * 1000, 2)
+            }
+        else:
+            logger.error(f"Cloudflare speedtest failed with status {response.status_code}")
+            return None
+
+    except Exception as e:
+        logger.error(f"Cloudflare speedtest failed: {e}")
         return None

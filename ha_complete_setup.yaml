@@ -1,0 +1,83 @@
+# Complete Net Sentinel Home Assistant Setup
+# Updated with correct entity IDs and working configuration
+
+# 1. HELPERS - Create these in Settings > Devices & Services > Helpers
+input_boolean:
+  cloud_probe_status:
+    name: Cloud Probe Status
+    icon: mdi:cloud-check
+
+input_number:
+  cloud_probe_latency:
+    name: Cloud Probe Latency
+    initial: 0
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: ms
+    icon: mdi:timer-outline
+
+# 2. AUTOMATION - Create in Settings > Automations > YAML Mode
+alias: "System: Update Cloud Probe"
+description: "Receives heartbeat from external VPS cloud probe"
+trigger:
+  - platform: webhook
+    webhook_id: "net-sentinel-cloud-probe-2025"
+    local_only: false
+condition: []
+action:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.json.status == 'online' }}"
+        sequence:
+          - service: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.cloud_probe_status
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.json.status == 'offline' }}"
+        sequence:
+          - service: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.cloud_probe_status
+  - service: input_number.set_value
+    target:
+      entity_id: input_number.cloud_probe_latency
+    data:
+      value: "{{ trigger.json.latency | default(0) | int }}"
+mode: single
+
+# 3. DASHBOARD - Add to Lovelace dashboard
+type: vertical-stack
+cards:
+  - type: entities
+    title: Network Health
+    entities:
+      - entity: sensor.network_sentinel_netsentinel_network_status
+        name: Local Status
+      - entity: input_boolean.cloud_probe_status
+        name: Cloud Reachability
+      - entity: sensor.network_sentinel_netsentinel_last_outage_reason
+  - type: grid
+    columns: 2
+    cards:
+      - type: gauge
+        entity: sensor.network_sentinel_netsentinel_router_latency
+        name: Ping (Out)
+        severity:
+          green: 0
+          yellow: 50
+          red: 100
+      - type: gauge
+        entity: input_number.cloud_probe_latency
+        name: Ping (In)
+        severity:
+          green: 0
+          yellow: 50
+          red: 100
+  - type: history-graph
+    hours_to_show: 24
+    entities:
+      - entity: sensor.network_sentinel_netsentinel_download_speed
+      - entity: sensor.network_sentinel_netsentinel_upload_speed
