@@ -1,0 +1,426 @@
+# Network Monitoring Dashboard
+# Enhanced with Router Health Detection
+
+title: Network
+path: network
+icon: mdi:web
+
+cards:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # HERO STATUS - Primary internet connectivity indicator
+  # ═══════════════════════════════════════════════════════════════════════════
+  - type: vertical-stack
+    cards:
+      # Large status indicator with conditional styling
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: sensor.internet_status
+            state: "HEALTHY"
+        card:
+          type: custom:mushroom-title-card
+          title: Internet Connected
+          subtitle: All systems operational
+          alignment: center
+
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: sensor.internet_status
+            state_not: "HEALTHY"
+        card:
+          type: custom:mushroom-title-card
+          title: ⚠️ Connection Issue Detected
+          subtitle: "{{ states('sensor.internet_fault_blame') }}"
+          alignment: center
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ROUTER HEALTH - New section for router hardware monitoring
+  # ═══════════════════════════════════════════════════════════════════════════
+  - type: custom:mushroom-title-card
+    title: Router Health
+    subtitle: Local Hardware Status
+
+  - type: conditional
+    conditions:
+      - condition: state
+        entity: sensor.internet_fault_blame
+        state_not: "NONE"
+    card:
+      type: vertical-stack
+      cards:
+        - type: conditional
+          conditions:
+            - condition: state
+              entity: sensor.internet_fault_blame
+              state: "ROUTER_CRITICAL"
+          card:
+            type: custom:mushroom-title-card
+            title: 🚨 Router Critical
+            subtitle: Hardware issue detected - reboot recommended
+            alignment: center
+
+        - type: conditional
+          conditions:
+            - condition: state
+              entity: sensor.internet_fault_blame
+              state: "ROUTER_DEGRADED"
+          card:
+            type: custom:mushroom-title-card
+            title: ⚠️ Router Degraded
+            subtitle: Performance degraded - investigate
+            alignment: center
+
+  - type: grid
+    columns: 4
+    cards:
+      # Health Score (0-100)
+      - type: custom:mushroom-entity-card
+        entity: sensor.router_health_score
+        name: Health Score
+        icon: mdi:router-wireless
+        icon_color: |
+          {% if states('sensor.router_health_score') | int(default=0) >= 80 %}
+            green
+          {% elif states('sensor.router_health_score') | int(default=0) >= 60 %}
+            yellow
+          {% else %}
+            red
+          {% endif %}
+        primary_info: state
+        secondary_info: name
+        tap_action:
+          action: more-info
+
+      # Packet Loss
+      - type: custom:mushroom-entity-card
+        entity: sensor.router_packet_loss
+        name: Packet Loss
+        icon: mdi:package-variant
+        icon_color: |
+          {% if states('sensor.router_packet_loss') | float(default=0) > 0 %}
+            red
+          {% else %}
+            grey
+          {% endif %}
+        primary_info: state
+        secondary_info: name
+        tap_action:
+          action: more-info
+
+      # Router Latency
+      - type: custom:mushroom-entity-card
+        entity: sensor.internet_router_latency
+        name: Router Ping
+        icon: mdi:timer-outline
+        icon_color: cyan
+        primary_info: state
+        secondary_info: name
+        tap_action:
+          action: more-info
+
+      # Router Jitter
+      - type: custom:mushroom-entity-card
+        entity: sensor.router_jitter_internal
+        name: Router Jitter
+        icon: mdi:waves
+        icon_color: amber
+        primary_info: state
+        secondary_info: name
+        tap_action:
+          action: more-info
+
+  - type: conditional
+    conditions:
+      - condition: numeric_state
+        entity: sensor.router_packet_loss
+        above: 0
+    card:
+      type: custom:mushroom-title-card
+      title: ⚠️ Packet Loss Detected
+      subtitle: Router losing packets - possible hardware issue
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # FAULT ATTRIBUTION - Clear indication of who to blame
+  # ═══════════════════════════════════════════════════════════════════════════
+  - type: conditional
+    conditions:
+      - condition: state
+        entity: sensor.internet_status
+        state_not: "HEALTHY"
+    card:
+      type: vertical-stack
+      cards:
+        - type: custom:mushroom-title-card
+          title: Fault Analysis
+          subtitle: Automated Diagnosis
+
+        - type: markdown
+          content: |
+            ### 🔍 Issue Details
+
+            **Primary Fault:** `{{ states('sensor.internet_fault_blame') }}`
+
+            **Status:** `{{ states('sensor.internet_status') }}`
+
+            **Analysis:** {{ states('sensor.internet_fault_detail') }}
+
+            ---
+
+            #### Fault Code Guide
+
+            - `ROUTER_CRITICAL` → Router hardware failing (reboot/replace)
+            - `ROUTER_DEGRADED` → Router overloaded (check device count)
+            - `ROUTER_DOWN` → Router not responding (check power/cables)
+            - `ISP_DNS` → ISP DNS servers down (call ISP)
+            - `ISP_ROUTING` → ISP routing issue (call ISP)
+            - `DEGRADED_QUALITY` → Connection unstable (line quality)
+            - `TRANSIENT` → Temporary glitch (monitor)
+
+        - type: entities
+          entities:
+            - entity: sensor.internet_fault_blame
+              name: Primary Fault
+              icon: mdi:alert-circle
+            - entity: sensor.internet_fault_detail
+              name: Detailed Analysis
+              icon: mdi:information-variant
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # SPEED PERFORMANCE - Download speeds and throughput
+  # ═══════════════════════════════════════════════════════════════════════════
+  - type: custom:mushroom-title-card
+    title: Speed Performance
+    subtitle: Bandwidth & Throughput
+
+  - type: horizontal-stack
+    cards:
+      - type: custom:mushroom-entity-card
+        entity: sensor.internet_download_speed
+        name: Download
+        icon: mdi:download-network
+        icon_color: blue
+        primary_info: state
+        secondary_info: name
+        tap_action:
+          action: more-info
+
+      - type: custom:mushroom-entity-card
+        entity: sensor.internet_speedtest_latency
+        name: Speedtest Ping
+        icon: mdi:speedometer
+        icon_color: green
+        primary_info: state
+        secondary_info: name
+        tap_action:
+          action: more-info
+
+  # Speed trend graph
+  - type: custom:mini-graph-card
+    entities:
+      - entity: sensor.internet_download_speed
+        name: Download Speed
+        color: '#2196F3'
+        show_state: true
+    hours_to_show: 12
+    line_width: 3
+    font_size: 75
+    animate: true
+    smoothing: true
+    show:
+      labels: false
+      points: false
+      legend: false
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # LATENCY METRICS - Connection quality indicators
+  # ═══════════════════════════════════════════════════════════════════════════
+  - type: custom:mushroom-title-card
+    title: Latency Profile
+    subtitle: Response Times
+
+  - type: grid
+    columns: 3
+    cards:
+      # Router Latency
+      - type: custom:mushroom-entity-card
+        entity: sensor.internet_router_latency
+        name: Router
+        icon: mdi:router-wireless
+        icon_color: cyan
+        primary_info: state
+        secondary_info: name
+        tap_action:
+          action: more-info
+
+      # DNS Latency
+      - type: custom:mushroom-entity-card
+        entity: sensor.internet_dns_latency
+        name: DNS
+        icon: mdi:dns
+        icon_color: purple
+        primary_info: state
+        secondary_info: name
+        tap_action:
+          action: more-info
+
+      # HTTP Latency
+      - type: custom:mushroom-entity-card
+        entity: sensor.internet_http_latency
+        name: HTTP
+        icon: mdi:web
+        icon_color: orange
+        primary_info: state
+        secondary_info: name
+        tap_action:
+          action: more-info
+
+  # Latency comparison graph
+  - type: custom:mini-graph-card
+    entities:
+      - entity: sensor.internet_router_latency
+        name: Router
+        color: '#00BCD4'
+      - entity: sensor.internet_dns_latency
+        name: DNS
+        color: '#9C27B0'
+      - entity: sensor.internet_http_latency
+        name: HTTP
+        color: '#FF9800'
+    hours_to_show: 12
+    line_width: 2
+    font_size: 75
+    animate: true
+    smoothing: true
+    show:
+      labels: false
+      points: false
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # CONNECTION STABILITY - Jitter and reliability metrics
+  # ═══════════════════════════════════════════════════════════════════════════
+  - type: custom:mushroom-title-card
+    title: Stability Metrics
+    subtitle: Connection Reliability
+
+  - type: grid
+    columns: 3
+    cards:
+      # Overall Jitter
+      - type: custom:mushroom-entity-card
+        entity: sensor.internet_jitter
+        name: Jitter
+        icon: mdi:sine-wave
+        icon_color: amber
+        primary_info: state
+        secondary_info: name
+        tap_action:
+          action: more-info
+
+      # DNS Success Rate
+      - type: custom:mushroom-entity-card
+        entity: sensor.internet_dns_success_rate
+        name: DNS Success
+        icon: mdi:check-circle
+        icon_color: green
+        primary_info: state
+        secondary_info: name
+        tap_action:
+          action: more-info
+
+      # HTTP Success Rate
+      - type: custom:mushroom-entity-card
+        entity: sensor.internet_http_success_rate
+        name: HTTP Success
+        icon: mdi:check-circle
+        icon_color: green
+        primary_info: state
+        secondary_info: name
+        tap_action:
+          action: more-info
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # HISTORICAL DATA - 24 hour trends
+  # ═══════════════════════════════════════════════════════════════════════════
+  - type: custom:mushroom-title-card
+    title: Historical Trends
+    subtitle: 24 Hour Overview
+
+  - type: history-graph
+    entities:
+      - entity: sensor.internet_download_speed
+        name: Download Speed
+      - entity: sensor.internet_router_latency
+        name: Router Latency
+      - entity: sensor.internet_dns_latency
+        name: DNS Latency
+    hours_to_show: 24
+    refresh_interval: 300
+    show_names: true
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # QUICK ACTIONS - Utility buttons for common tasks
+  # ═══════════════════════════════════════════════════════════════════════════
+  - type: custom:mushroom-title-card
+    title: Quick Actions
+    subtitle: Network Utilities
+
+  - type: horizontal-stack
+    cards:
+      - type: button
+        name: Restart Router
+        icon: mdi:restart
+        tap_action:
+          action: call-service
+          service: script.restart_router
+
+      - type: button
+        name: Flush DNS
+        icon: mdi:dns
+        tap_action:
+          action: call-service
+          service: shell_command.flush_dns
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # TECHNICAL DETAILS - All metrics in one place
+  # ═══════════════════════════════════════════════════════════════════════════
+  - type: custom:mushroom-title-card
+    title: Technical Details
+    subtitle: All Metrics
+
+  - type: entities
+    entities:
+      - entity: sensor.internet_status
+        name: Overall Status
+        icon: mdi:web
+      - entity: sensor.router_health_score
+        name: Router Health Score
+        icon: mdi:router-wireless
+      - entity: sensor.router_packet_loss
+        name: Router Packet Loss
+        icon: mdi:package-variant
+      - entity: sensor.router_jitter_internal
+        name: Router Jitter
+        icon: mdi:waves
+      - entity: sensor.internet_router_latency
+        name: Router Response Time
+      - entity: sensor.internet_dns_latency
+        name: DNS Resolution Time
+      - entity: sensor.internet_http_latency
+        name: HTTP Request Time
+      - entity: sensor.internet_jitter
+        name: Connection Jitter
+      - entity: sensor.internet_dns_success_rate
+        name: DNS Reliability
+      - entity: sensor.internet_http_success_rate
+        name: HTTP Reliability
+      - entity: sensor.internet_download_speed
+        name: Download Throughput
+      - entity: sensor.internet_speedtest_latency
+        name: Speedtest Ping
+      - entity: sensor.internet_fault_blame
+        name: Last Fault
+      - entity: sensor.internet_fault_detail
+        name: Last Fault Detail
+    show_header_toggle: false
+    state_color: true
