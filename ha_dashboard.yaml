@@ -1,0 +1,269 @@
+title: Network
+path: network
+icon: mdi:web
+cards:
+  - type: vertical-stack
+    cards:
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: sensor.internet_status
+            state: HEALTHY
+        card:
+          type: custom:mushroom-title-card
+          title: ✓ Network Healthy
+          subtitle: All systems operational
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: sensor.internet_status
+            state_not: HEALTHY
+        card:
+          type: custom:mushroom-title-card
+          title: ⚠ Network Issue
+          subtitle: >-
+            {{ states('sensor.internet_fault_blame') }} - {{
+            states('sensor.internet_fault_detail') }}
+  - type: custom:mushroom-title-card
+    title: Router Health
+    subtitle: Local Gateway Status
+  - type: horizontal-stack
+    cards:
+      - type: gauge
+        entity: sensor.router_health_score
+        name: Health Score
+        needle: true
+        min: 0
+        max: 100
+        severity:
+          green: 80
+          yellow: 60
+          red: 0
+      - type: custom:mushroom-entity-card
+        entity: sensor.internet_router_latency
+        name: Latency
+        icon: mdi:router-wireless
+        icon_color: cyan
+        primary_info: state
+        secondary_info: name
+  - type: conditional
+    conditions:
+      - condition: numeric_state
+        entity: sensor.router_health_score
+        below: 80
+    card:
+      type: horizontal-stack
+      cards:
+        - type: custom:mushroom-entity-card
+          entity: sensor.router_packet_loss
+          name: Packet Loss
+          icon: mdi:package-down
+          icon_color: red
+          primary_info: state
+          secondary_info: name
+        - type: custom:mushroom-entity-card
+          entity: sensor.router_jitter_internal
+          name: Jitter
+          icon: mdi:sine-wave
+          icon_color: amber
+          primary_info: state
+          secondary_info: name
+  - type: conditional
+    conditions:
+      - condition: state
+        entity: sensor.internet_status
+        state_not: HEALTHY
+    card:
+      type: vertical-stack
+      cards:
+        - type: custom:mushroom-title-card
+          title: 🔍 Fault Attribution
+          subtitle: Root Cause Analysis
+        - type: markdown
+          content: |
+            ## Who's Responsible?
+
+            **Fault Code:** `{{ states('sensor.internet_fault_blame') }}`
+
+            **Explanation:** {{ states('sensor.internet_fault_detail') }}
+
+            {% set blame = states('sensor.internet_fault_blame') %}
+            {% if 'ROUTER' in blame %}
+            🔧 **Action:** Check router - reboot or contact support
+            {% elif 'ISP' in blame %}
+            📞 **Action:** Contact your Internet Service Provider
+            {% elif 'DEGRADED' in blame %}
+            ⏳ **Action:** Monitor - may resolve automatically
+            {% else %}
+            ⚡ **Action:** Issue is transient or resolving
+            {% endif %}
+  - type: custom:mushroom-title-card
+    title: Performance
+    subtitle: Speed & Throughput
+  - type: horizontal-stack
+    cards:
+      - type: custom:mushroom-entity-card
+        entity: sensor.internet_download_speed
+        name: Download
+        icon: mdi:download-network
+        icon_color: blue
+        primary_info: state
+        secondary_info: name
+      - type: custom:mushroom-entity-card
+        entity: sensor.internet_speedtest_latency
+        name: Ping
+        icon: mdi:speedometer
+        icon_color: green
+        primary_info: state
+        secondary_info: name
+  - type: custom:mushroom-title-card
+    title: Connection Quality
+    subtitle: Latency & Stability
+  - type: grid
+    columns: 3
+    square: false
+    cards:
+      - type: custom:mushroom-entity-card
+        entity: sensor.internet_dns_latency
+        name: DNS
+        icon: mdi:dns
+        icon_color: purple
+        primary_info: state
+        secondary_info: name
+      - type: custom:mushroom-entity-card
+        entity: sensor.internet_http_latency
+        name: HTTP
+        icon: mdi:web
+        icon_color: orange
+        primary_info: state
+        secondary_info: name
+      - type: custom:mushroom-entity-card
+        entity: sensor.internet_jitter
+        name: Jitter
+        icon: mdi:sine-wave
+        icon_color: amber
+        primary_info: state
+        secondary_info: name
+  - type: custom:mushroom-title-card
+    title: Reliability
+    subtitle: Request Success Rates
+  - type: custom:mini-graph-card
+    entities:
+      - entity: sensor.internet_router_latency
+        name: Router
+        color: "#00BCD4"
+      - entity: sensor.internet_dns_latency
+        name: DNS
+        color: "#9C27B0"
+      - entity: sensor.internet_http_latency
+        name: HTTP
+        color: "#FF9800"
+    hours_to_show: 6
+    line_width: 2
+    font_size: 60
+    animate: true
+    smoothing: true
+    lower_bound: 0
+    show:
+      labels: false
+      points: false
+      name: false
+  - type: horizontal-stack
+    cards:
+      - type: custom:mushroom-entity-card
+        entity: sensor.internet_dns_success_rate
+        name: DNS
+        icon: mdi:check-network
+        icon_color: green
+        primary_info: state
+        secondary_info: name
+      - type: custom:mushroom-entity-card
+        entity: sensor.internet_http_success_rate
+        name: HTTP
+        icon: mdi:check-network-outline
+        icon_color: green
+        primary_info: state
+        secondary_info: name
+      - type: custom:mushroom-entity-card
+        entity: input_boolean.cloud_probe_status
+        name: Cloud Probe
+        icon: mdi:cloud-check
+        icon_color: blue
+        tap_action:
+          action: more-info
+  - type: custom:mushroom-title-card
+    title: Advanced Diagnostics
+    subtitle: Detailed Metrics
+  - type: conditional
+    conditions:
+      - condition: state
+        entity: input_boolean.cloud_probe_status
+        state: "on"
+    card:
+      type: custom:mushroom-entity-card
+      entity: input_number.cloud_probe_latency
+      name: Cloud → HA Latency
+      icon: mdi:cloud-arrow-down
+      icon_color: blue
+      primary_info: state
+      secondary_info: name
+  - type: entities
+    entities:
+      - type: section
+        label: Status
+      - entity: sensor.internet_status
+        name: Network Status
+      - entity: sensor.internet_fault_blame
+        name: Fault Code
+      - entity: sensor.internet_fault_detail
+        name: Fault Description
+      - type: section
+        label: Router Health
+      - entity: sensor.router_health_score
+        name: Health Score
+      - entity: sensor.router_packet_loss
+        name: Packet Loss
+      - entity: sensor.router_jitter_internal
+        name: Internal Jitter
+      - type: section
+        label: Latency
+      - entity: sensor.internet_router_latency
+        name: Router Response
+      - entity: sensor.internet_dns_latency
+        name: DNS Resolution
+      - entity: sensor.internet_http_latency
+        name: HTTP Request
+      - entity: sensor.internet_jitter
+        name: Connection Jitter
+      - entity: sensor.internet_speedtest_latency
+        name: Speedtest Ping
+      - type: section
+        label: Performance
+      - entity: sensor.internet_download_speed
+        name: Download Speed
+      - type: section
+        label: Reliability
+      - entity: sensor.internet_dns_success_rate
+        name: DNS Success Rate
+      - entity: sensor.internet_http_success_rate
+        name: HTTP Success Rate
+      - type: section
+        label: Cloud Probe
+      - entity: input_boolean.cloud_probe_status
+        name: Probe Status
+      - entity: input_number.cloud_probe_latency
+        name: Cloud Latency
+    show_header_toggle: false
+    state_color: true
+  - type: custom:mushroom-title-card
+    title: Historical Trends
+    subtitle: 24 Hour View
+  - type: history-graph
+    entities:
+      - entity: sensor.router_health_score
+        name: Router Health
+      - entity: sensor.internet_router_latency
+        name: Router Latency
+    hours_to_show: 24
+    refresh_interval: 300
+
