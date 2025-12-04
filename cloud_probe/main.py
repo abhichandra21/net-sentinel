@@ -15,14 +15,16 @@ def check_home_connectivity(url):
     """
     try:
         start = time.time()
-        # Use HEAD request to minimize data transfer
-        response = requests.head(url, timeout=5, allow_redirects=True)
+        # Use GET request for better compatibility (some servers don't handle HEAD well)
+        response = requests.get(url, timeout=5, allow_redirects=True, stream=True)
+        # Read just the first byte to ensure connection is established
+        response.raw.read(1)
         latency_ms = (time.time() - start) * 1000
 
         # Any 2xx or 3xx status code means it's reachable
         if response.status_code < 400:
             # Ensure we return a valid number
-            latency_value = round(float(latency_ms), 2) if latency_ms is not None else None
+            latency_value = round(float(latency_ms), 2)
             return True, latency_value
         else:
             logger.warning(f"HTTP check returned status {response.status_code}")
