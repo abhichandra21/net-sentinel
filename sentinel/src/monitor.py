@@ -338,6 +338,7 @@ def main():
                 consecutive_failures = 0
                 notifier.update_state("status", "HEALTHY")
                 notifier.update_state("blame", "NONE")
+                notifier.update_state("fault_detail", "")
 
                 # Report metrics
                 notifier.update_state("router_latency", results['router'])
