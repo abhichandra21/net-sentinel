@@ -37,7 +37,7 @@ def load_config():
     with open(config_path, 'r') as f:
         return yaml.safe_load(f)
 
-def perform_health_check(targets, http_endpoints=None):
+def perform_health_check(targets, http_endpoints=None, dns_timeout=2.0, http_timeout=10.0, ping_timeout=2.0):
     """
     Comprehensive health check across multiple layers.
     Returns dict with results from each check.
@@ -48,11 +48,11 @@ def perform_health_check(targets, http_endpoints=None):
     results['router_health'] = check_router_health(targets['router'])
 
     # Layer 1: Local network (your router) - basic ping
-    results['router'] = check_ping(targets['router'])
+    results['router'] = check_ping(targets['router'], timeout=ping_timeout)
 
     # Layer 2: ISP gateway (if configured)
     if targets.get('isp_gateway'):
-        results['isp_gateway'] = check_ping(targets['isp_gateway'])
+        results['isp_gateway'] = check_ping(targets['isp_gateway'], timeout=ping_timeout)
 
     # Layer 3: DNS resolution across multiple domains.
     # Prefer DNS servers from configuration if provided so DNS failures
@@ -64,17 +64,17 @@ def perform_health_check(targets, http_endpoints=None):
         ) if dns_ip
     ]
     if dns_servers:
-        dns_results = check_multi_dns(dns_servers=dns_servers)
+        dns_results = check_multi_dns(dns_servers=dns_servers, timeout=dns_timeout)
     else:
-        dns_results = check_multi_dns()
+        dns_results = check_multi_dns(timeout=dns_timeout)
     results['dns'] = dns_results
 
     # Layer 4: HTTP connectivity across multiple endpoints.
     # Allow overriding default endpoints from configuration when provided.
     if http_endpoints:
-        http_results = check_multi_http(endpoints=http_endpoints)
+        http_results = check_multi_http(endpoints=http_endpoints, timeout=http_timeout)
     else:
-        http_results = check_multi_http()
+        http_results = check_multi_http(timeout=http_timeout)
     results['http'] = http_results
 
     # Track latency for jitter calculation
@@ -308,7 +308,15 @@ def main():
     http_endpoints = config['monitoring'].get('http_endpoints')
     interval = config['monitoring']['interval_seconds']
 
+    # Read timeout and threshold configuration
+    timeouts = config['monitoring'].get('timeouts', {})
+    dns_timeout = timeouts.get('dns_seconds', 2.0)
+    http_timeout = timeouts.get('http_seconds', 10.0)
+    ping_timeout = timeouts.get('ping_seconds', 2.0)
+    consecutive_failures_threshold = config['monitoring'].get('consecutive_failures_threshold', 3)
+
     logger.info("Network Sentinel Started.")
+    logger.info(f"Configuration: DNS timeout={dns_timeout}s, HTTP timeout={http_timeout}s, Failure threshold={consecutive_failures_threshold}")
     if notifier.connected:
         notifier.update_state("status", "Online")
     else:
@@ -325,7 +333,13 @@ def main():
             schedule.run_pending()
 
             # Main Health Check
-            results = perform_health_check(targets, http_endpoints=http_endpoints)
+            results = perform_health_check(
+                targets,
+                http_endpoints=http_endpoints,
+                dns_timeout=dns_timeout,
+                http_timeout=http_timeout,
+                ping_timeout=ping_timeout
+            )
 
             # Determine health status
             dns_healthy = results.get('dns', {}).get('all_succeeded', False)
@@ -366,9 +380,9 @@ def main():
 
             else:
                 consecutive_failures += 1
-                logger.warning(f"Health Check Failed. Consecutive: {consecutive_failures}")
+                logger.warning(f"Health Check Failed. Consecutive: {consecutive_failures}/{consecutive_failures_threshold}")
 
-                if consecutive_failures >= 3:  # Wait for 3 cycles to confirm
+                if consecutive_failures >= consecutive_failures_threshold:
                     notifier.update_state("status", "DIAGNOSING")
                     blame = diagnose_issue(targets, results, notifier)
                     notifier.update_state("status", f"OUTAGE_{blame}")

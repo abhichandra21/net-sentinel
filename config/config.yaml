@@ -1,10 +1,17 @@
 monitoring:
   interval_seconds: 30
+  consecutive_failures_threshold: 2  # Number of consecutive failures before triggering diagnosis (2-3 recommended)
+
   targets:
     router: "192.168.1.1"        # Your router/gateway IP
     isp_gateway: null             # ISP's first hop (set if known, or leave null)
     public_dns_1: "8.8.8.8"      # For legacy compatibility
     public_dns_2: "1.1.1.1"      # For legacy compatibility
+
+  timeouts:
+    dns_seconds: 2.0              # DNS query timeout (1-3s recommended)
+    http_seconds: 10.0            # HTTP request timeout (5-15s recommended)
+    ping_seconds: 2.0             # Ping timeout (1-3s recommended)
 
   speedtest:
     use_cloudflare: true          # Use Cloudflare speed test (faster)

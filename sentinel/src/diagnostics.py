@@ -4,6 +4,7 @@ import requests
 import dns.resolver
 import statistics
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from ping3 import ping
 
 logger = logging.getLogger("Diagnostics")
@@ -22,7 +23,7 @@ def check_ping(host, count=1, timeout=2):
         logger.error(f"Ping error for {host}: {e}")
         return None
 
-def check_dns(hostname="google.com", dns_server="8.8.8.8"):
+def check_dns(hostname="google.com", dns_server="8.8.8.8", timeout=2.0):
     """
     Tries to resolve a hostname using a specific DNS server.
     Returns (success: bool, latency_ms: float) tuple.
@@ -31,20 +32,20 @@ def check_dns(hostname="google.com", dns_server="8.8.8.8"):
     resolver.nameservers = [dns_server]
     try:
         start = time.time()
-        resolver.resolve(hostname, 'A', lifetime=3)
+        resolver.resolve(hostname, 'A', lifetime=timeout)
         latency = (time.time() - start) * 1000  # Convert to ms
         return (True, round(latency, 2))
     except Exception as e:
         logger.warning(f"DNS check failed for {hostname} via {dns_server}: {e}")
         return (False, None)
 
-def check_http(url):
+def check_http(url, timeout=10.0):
     """
     Returns (success: bool, latency_ms: float) tuple.
     """
     try:
         start = time.time()
-        r = requests.get(url, timeout=5)
+        r = requests.get(url, timeout=timeout)
         latency = (time.time() - start) * 1000  # Convert to ms
         success = r.status_code >= 200 and r.status_code < 300
         return (success, round(latency, 2) if success else None)
@@ -92,10 +93,11 @@ def run_speedtest():
         logger.error(f"Speedtest failed: {e}")
         return None
 
-def check_multi_dns(domains=None, dns_servers=None):
+def check_multi_dns(domains=None, dns_servers=None, timeout=2.0):
     """
     Check DNS resolution for multiple domains across one or more DNS servers.
     A domain is considered successful if at least one DNS server resolves it.
+    All checks run in parallel for speed.
     Returns dict with success count, failed domains, and average latency.
     """
     if domains is None:
@@ -105,21 +107,34 @@ def check_multi_dns(domains=None, dns_servers=None):
     if not dns_servers:
         dns_servers = ["8.8.8.8"]
 
+    # Create all DNS check tasks (domain, dns_server pairs)
+    tasks = [(domain, dns_server) for domain in domains for dns_server in dns_servers]
+
+    # Run all checks in parallel
+    results_by_domain = {domain: [] for domain in domains}
+
+    with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
+        future_to_task = {
+            executor.submit(check_dns, domain, dns_server, timeout): (domain, dns_server)
+            for domain, dns_server in tasks
+        }
+
+        for future in as_completed(future_to_task):
+            domain, dns_server = future_to_task[future]
+            try:
+                success, latency_ms = future.result()
+                if success and latency_ms is not None:
+                    results_by_domain[domain].append(latency_ms)
+            except Exception as e:
+                logger.error(f"DNS check exception for {domain} via {dns_server}: {e}")
+
+    # Aggregate results
     latencies_ms = []
     failed_domains = []
 
     for domain in domains:
-        domain_success = False
-        domain_latencies_ms = []
-
-        for dns_server in dns_servers:
-            success, latency_ms = check_dns(domain, dns_server)
-            if success and latency_ms is not None:
-                domain_success = True
-                domain_latencies_ms.append(latency_ms)
-
-        if domain_success:
-            latencies_ms.extend(domain_latencies_ms)
+        if results_by_domain[domain]:
+            latencies_ms.extend(results_by_domain[domain])
         else:
             failed_domains.append(domain)
 
@@ -133,9 +148,10 @@ def check_multi_dns(domains=None, dns_servers=None):
         'all_succeeded': success_count == len(domains)
     }
 
-def check_multi_http(endpoints=None):
+def check_multi_http(endpoints=None, timeout=10.0):
     """
     Check HTTP connectivity to multiple reliable endpoints.
+    All checks run in parallel for speed.
     Returns dict with success count, failed endpoints, and average latency.
     """
     if endpoints is None:
@@ -149,12 +165,24 @@ def check_multi_http(endpoints=None):
     results = []
     failed = []
 
-    for url in endpoints:
-        success, latency = check_http(url)
-        if success:
-            results.append(latency)
-        else:
-            failed.append(url)
+    # Run all HTTP checks in parallel
+    with ThreadPoolExecutor(max_workers=len(endpoints)) as executor:
+        future_to_url = {
+            executor.submit(check_http, url, timeout): url
+            for url in endpoints
+        }
+
+        for future in as_completed(future_to_url):
+            url = future_to_url[future]
+            try:
+                success, latency = future.result()
+                if success:
+                    results.append(latency)
+                else:
+                    failed.append(url)
+            except Exception as e:
+                logger.error(f"HTTP check exception for {url}: {e}")
+                failed.append(url)
 
     return {
         'success_count': len(results),
