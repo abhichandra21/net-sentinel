@@ -1,0 +1,219 @@
+# Net Sentinel Alert Automations
+# Add to automations.yaml or import in configuration.yaml
+
+# ============================================================================
+# CRITICAL ALERTS - Immediate notification on outages
+# ============================================================================
+
+- alias: "Net Alert - OUTAGE CONFIRMED"
+  description: "Immediate alert when internet outage is CONFIRMED"
+  trigger:
+    - platform: state
+      entity_id: sensor.internet_status
+      from: null
+      to:
+        - "OUTAGE_ISP_DNS"
+        - "OUTAGE_ISP_ROUTING"
+        - "OUTAGE_ROUTER_DOWN"
+        - "OUTAGE_ROUTER_CRITICAL"
+        - "OUTAGE_ISP_EQUIPMENT"
+  action:
+    - service: notify.notify
+      data:
+        title: "🚨 Internet OUTAGE CONFIRMED"
+        message: >
+          Internet connection FAILED!
+
+          Status: {{ states('sensor.internet_status') }}
+          Blame: {{ states('sensor.internet_fault_blame') }}
+          Detail: {{ states('sensor.internet_fault_detail') }}
+          Time: {{ now().strftime('%I:%M:%S %p') }}
+
+          Router: {{ states('sensor.internet_router_latency') }}ms
+          DNS: {{ states('sensor.internet_dns_latency') }}ms
+          HTTP: {{ states('sensor.internet_http_latency') }}ms
+
+- alias: "Net Alert - Connection RESTORED"
+  description: "Alert when internet connection is restored"
+  trigger:
+    - platform: state
+      entity_id: sensor.internet_status
+      from:
+        - "OUTAGE_ISP_DNS"
+        - "OUTAGE_ISP_ROUTING"
+        - "OUTAGE_ROUTER_DOWN"
+        - "OUTAGE_ROUTER_CRITICAL"
+        - "OUTAGE_ISP_EQUIPMENT"
+      to: "HEALTHY"
+  action:
+    - service: notify.notify
+      data:
+        title: "✅ Internet RESTORED"
+        message: >
+          Internet connection is back online!
+
+          Downtime: Check logs for recovery time
+          Router Health: {{ states('sensor.router_health_score') }}/100
+
+- alias: "Net Alert - Router DEGRADED"
+  description: "Alert when router performance is degraded"
+  trigger:
+    - platform: state
+      entity_id: sensor.internet_status
+      to: "DEGRADED_ROUTER"
+  action:
+    - service: notify.notify
+      data:
+        title: "⚠️ Router Performance DEGRADED"
+        message: >
+          Router is struggling but still operational
+
+          Health Score: {{ states('sensor.router_health_score') }}/100
+          Packet Loss: {{ states('sensor.router_packet_loss') }}%
+          Router Latency: {{ states('sensor.internet_router_latency') }}ms
+
+# ============================================================================
+# DEGRADATION WARNINGS - Persistent issues
+# ============================================================================
+
+- alias: "Net Alert - High Jitter Detected"
+  description: "Warning when connection quality is poor due to high jitter"
+  trigger:
+    - platform: state
+      entity_id: sensor.internet_status
+      to: "DEGRADED_QUALITY"
+  action:
+    - service: notify.notify
+      data:
+        title: "⚠️ Connection Quality DEGRADED"
+        message: >
+          High jitter detected - connection is unstable
+
+          Jitter: {{ states('sensor.jitter') }}ms
+          HTTP Latency: {{ states('sensor.internet_http_latency') }}ms
+
+- alias: "Net Alert - Partial Internet Failure"
+  description: "Warning when some internet services are unreachable"
+  trigger:
+    - platform: state
+      entity_id: sensor.internet_status
+      to:
+        - "DEGRADED_DNS"
+        - "DEGRADED_INTERNET"
+  action:
+    - service: notify.notify
+      data:
+        title: "⚠️ Partial Internet Failure"
+        message: >
+          Some internet services are unreachable
+
+          Status: {{ states('sensor.internet_status') }}
+          DNS Success Rate: {{ states('sensor.internet_dns_success_rate') }}
+          HTTP Success Rate: {{ states('sensor.internet_http_success_rate') }}
+
+# ============================================================================
+# ROUTER HEALTH ALERTS - Hardware issues
+# ============================================================================
+
+- alias: "Net Alert - Router CRITICAL Health"
+  description: "Alert when router health drops to critical levels"
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.router_health_score
+      below: 30
+  condition:
+    - condition: state
+      entity_id: sensor.internet_status
+      state: "HEALTHY"
+  action:
+    - service: notify.notify
+      data:
+        title: "🔥 Router Health CRITICAL"
+        message: >
+          Router health has dropped to CRITICAL levels!
+
+          Health Score: {{ states('sensor.router_health_score') }}/100
+          Packet Loss: {{ states('sensor.router_packet_loss') }}%
+          Jitter: {{ states('sensor.router_jitter_internal') }}ms
+
+          Router may be failing - check hardware!
+
+# ============================================================================
+# PERSISTENT DEGRADATION - Notify if degraded for extended period
+# ============================================================================
+
+- alias: "Net Alert - Persistent Degradation (30 min)"
+  description: "Notify if internet is degraded for 30 minutes"
+  trigger:
+    - platform: state
+      entity_id: sensor.internet_status
+      to:
+        - "DEGRADED_DNS"
+        - "DEGRADED_INTERNET"
+        - "DEGRADED_QUALITY"
+      for:
+        minutes: 30
+  action:
+    - service: notify.notify
+      data:
+        title: "📉 Persistent Internet Degradation"
+        message: >
+          Internet has been degraded for 30+ minutes
+
+          Status: {{ states('sensor.internet_status') }}
+          DNS: {{ states('sensor.internet_dns_latency') }}ms
+          HTTP: {{ states('sensor.internet_http_latency') }}ms
+          Jitter: {{ states('sensor.jitter') }}ms
+
+# ============================================================================
+# TRANSIENT ISSUES - Quick recovery notifications
+# ============================================================================
+
+- alias: "Net Alert - Transient Issue RESOLVED"
+  description: "Notify when transient issue resolves quickly"
+  trigger:
+    - platform: state
+      entity_id: sensor.internet_status
+      to: "HEALTHY"
+  condition:
+    - condition: state
+      entity_id: sensor.internet_status
+      state: "TRANSIENT"
+  action:
+    - service: notify.notify
+      data:
+        title: "ℹ️ Transient Issue Resolved"
+        message: >
+          Network issue resolved itself
+
+          Internet is back to normal
+          DNS: {{ states('sensor.internet_dns_latency') }}ms
+          HTTP: {{ states('sensor.internet_http_latency') }}ms
+
+# ============================================================================
+# CONFIGURATION NOTES
+# ============================================================================
+#
+# To use these automations:
+# 1. Add to automations.yaml OR
+# 2. Create separate file and add to configuration.yaml:
+#
+#    automation: !include ha_automation_alerts.yaml
+#
+# For persistent notifications (instead of push notifications):
+#    Replace "notify.notify" with "persistent_notification.create"
+#
+# For conditional notifications (e.g., only when away from home):
+#    Add condition like:
+#    - condition: state
+#      entity_id: person.your_name
+#      state: not_home
+#
+# For escalation (notify different people for different issues):
+#    Create separate actions with conditions:
+#    - condition: state
+#      entity_id: sensor.internet_fault_blame
+#      state: ROUTER_CRITICAL
+#    - service: notify.mobile_app_your_phone
+#
+# ============================================================================
