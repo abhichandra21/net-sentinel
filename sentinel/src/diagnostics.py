@@ -1,13 +1,90 @@
 import subprocess
-import logging
+import os
 import requests
-import dns.resolver
 import statistics
+import threading
+import dns.resolver
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from ping3 import ping
+import logging
 
 logger = logging.getLogger("Diagnostics")
+
+def check_interface_status(interface="eth0"):
+    """
+    Check if the physical network interface is UP.
+    Requires running on Linux. Returns None if not applicable.
+    """
+    try:
+        if not os.path.exists(f"/sys/class/net/{interface}/operstate"):
+            return None
+        with open(f"/sys/class/net/{interface}/operstate", "r") as f:
+            state = f.read().strip()
+        return state == "up"
+    except Exception as e:
+        logger.warning(f"Could not check interface {interface}: {e}")
+        return None
+
+def _download_load(url, stop_event, ready_event, failed_event):
+    """Continuously stream downloads until stopped; signal after first bytes."""
+    try:
+        while not stop_event.is_set():
+            with requests.get(url, stream=True, timeout=30) as response:
+                response.raise_for_status()
+                for chunk in response.iter_content(chunk_size=65536):
+                    if stop_event.is_set():
+                        return
+                    if chunk:
+                        ready_event.set()
+    except Exception as e:
+        logger.warning(f"Load generator failed: {e}")
+        failed_event.set()
+        ready_event.set()
+
+
+def _successful_pings(host, samples):
+    values = [check_ping(host, timeout=2) for _ in range(samples)]
+    return values, [value for value in values if value is not None]
+
+
+def measure_bufferbloat(host, idle_samples=3, load_samples=3,
+                        load_url="https://speed.cloudflare.com/__down?bytes=100000000"):
+    """Measure RTT and packet loss before and during a verified download load."""
+    idle_all, idle = _successful_pings(host, idle_samples)
+    if not idle:
+        return None
+
+    stop_event = threading.Event()
+    ready_event = threading.Event()
+    failed_event = threading.Event()
+    loader = threading.Thread(
+        target=_download_load,
+        args=(load_url, stop_event, ready_event, failed_event),
+        daemon=True,
+    )
+    loader.start()
+
+    if not ready_event.wait(timeout=5) or failed_event.is_set():
+        stop_event.set()
+        loader.join(timeout=5)
+        return None
+
+    try:
+        loaded_all, loaded = _successful_pings(host, load_samples)
+    finally:
+        stop_event.set()
+        loader.join(timeout=5)
+
+    idle_ms = round(statistics.mean(idle), 2)
+    loaded_ms = round(statistics.mean(loaded), 2) if loaded else None
+    return {
+        'idle_ms': idle_ms,
+        'loaded_ms': loaded_ms,
+        'bloat_ms': round(loaded_ms - idle_ms, 2) if loaded_ms is not None else None,
+        'idle_loss_pct': round((idle_all.count(None) / idle_samples) * 100, 1),
+        'loaded_loss_pct': round((loaded_all.count(None) / load_samples) * 100, 1),
+    }
 
 def check_ping(host, count=1, timeout=2):
     """
