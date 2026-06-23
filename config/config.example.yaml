@@ -13,6 +13,9 @@ monitoring:
     dns_seconds: 2.0
     http_seconds: 10.0
     ping_seconds: 2.0
+  thresholds:
+    ingress_latency_ms: 120
+    jitter_ms: 50
 
   speedtest:
     use_cloudflare: true

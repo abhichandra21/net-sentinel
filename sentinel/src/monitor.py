@@ -11,6 +11,7 @@ from diagnostics import (
     run_cloudflare_speedtest, calculate_jitter, check_router_health,
     detect_isp_gateway
 )
+from classify import classify_connectivity, requires_diagnosis
 from notifier import Notifier
 
 # Configure Logging
@@ -152,7 +153,8 @@ def perform_speedtest(notifier, use_cloudflare=True):
             logger.error(f"Failed to parse speedtest output: {e}")
             logger.debug(f"Output was: {output}")
 
-def diagnose_issue(targets, results, notifier):
+def diagnose_issue(targets, results, notifier, ingress_latency_ms=120,
+                   jitter_threshold_ms=50):
     """
     Fault isolation: determine if it's YOUR equipment or the ISP.
     Returns clear blame attribution.
@@ -201,15 +203,19 @@ def diagnose_issue(targets, results, notifier):
         notifier.update_state("fault_detail", "Router not responding to ping - check power and cables")
         return blame
 
-    # Layer 2: ISP GATEWAY/EQUIPMENT
-    if targets.get('isp_gateway') and results.get('isp_gateway') is None:
-        blame = "ISP_EQUIPMENT"
-        logger.error("⚠️  FAULT: ISP EQUIPMENT - ISP gateway unreachable")
-        trace = run_traceroute(targets['isp_gateway'], timeout=15)
-        notifier.log_event("OUTAGE", "ISP", f"ISP gateway unreachable. Trace: {trace[-200:]}", "CRITICAL")
-        notifier.update_state("blame", "ISP_EQUIPMENT")
-        notifier.update_state("fault_detail", "ISP gateway down - contact your ISP")
-        return blame
+    code, confidence = classify_connectivity(results, ingress_latency_ms)
+    if code:
+        degraded_codes = {"ISP_INGRESS_CONGEST", "DEGRADED_INTERNET"}
+        severity = "WARNING" if code in degraded_codes else "CRITICAL"
+        event_type = "DEGRADED" if severity == "WARNING" else "OUTAGE"
+        detail = f"{code} (confidence {confidence:.2f})"
+        trace = run_traceroute("8.8.8.8", timeout=15)
+        notifier.log_event(
+            event_type, "ISP", f"{detail}. Trace: {trace[-200:]}", severity,
+        )
+        notifier.update_state("blame", code)
+        notifier.update_state("fault_detail", detail)
+        return code
 
     # Layer 3: DNS FAILURES (likely resolver or upstream DNS issues)
     dns_check = results.get('dns', {})
@@ -305,7 +311,7 @@ def diagnose_issue(targets, results, notifier):
 
     # Layer 5: HIGH JITTER (degraded connection quality)
     jitter = results.get('jitter')
-    if jitter and jitter > 50:  # >50ms jitter is bad
+    if jitter is not None and jitter > jitter_threshold_ms:
         blame = "DEGRADED_QUALITY"
         logger.warning(f"⚠️  DEGRADED: High jitter detected ({jitter}ms) - poor connection quality")
         notifier.log_event("DEGRADED", "Quality", f"High jitter: {jitter}ms - connection unstable", "WARNING")
@@ -359,6 +365,10 @@ def main():
     ping_timeout = timeouts.get('ping_seconds', 2.0)
     consecutive_failures_threshold = config['monitoring'].get('consecutive_failures_threshold', 3)
 
+    thresholds = config['monitoring'].get('thresholds', {})
+    ingress_latency_ms = thresholds.get('ingress_latency_ms', 120)
+    jitter_threshold_ms = thresholds.get('jitter_ms', 50)
+
     logger.info("Network Sentinel Started.")
     logger.info(f"Configuration: DNS timeout={dns_timeout}s, HTTP timeout={http_timeout}s, Failure threshold={consecutive_failures_threshold}")
     if notifier.connected:
@@ -392,7 +402,11 @@ def main():
             http_healthy = results.get('http', {}).get('all_succeeded', False)
             router_healthy = results['router'] is not None
 
-            is_healthy = router_healthy and dns_healthy and http_healthy
+            is_healthy = not requires_diagnosis(
+                results,
+                ingress_latency_ms=ingress_latency_ms,
+                jitter_ms=jitter_threshold_ms,
+            )
 
             if is_healthy:
                 consecutive_failures = 0
@@ -430,11 +444,26 @@ def main():
 
                 if consecutive_failures >= consecutive_failures_threshold:
                     notifier.update_state("status", "DIAGNOSING")
-                    blame = diagnose_issue(targets, results, notifier)
-                    notifier.update_state("status", f"OUTAGE_{blame}")
+                    blame = diagnose_issue(
+                        targets,
+                        results,
+                        notifier,
+                        ingress_latency_ms=ingress_latency_ms,
+                        jitter_threshold_ms=jitter_threshold_ms,
+                    )
+                    if blame == 'ISP_INGRESS_CONGEST':
+                        status = 'DEGRADED_ISP_INGRESS_CONGEST'
+                    elif 'DEGRADED' in blame:
+                        status = blame
+                    elif blame == 'TRANSIENT':
+                        status = 'TRANSIENT'
+                    else:
+                        status = f'OUTAGE_{blame}'
+                    notifier.update_state('status', status)
 
                     # Log detailed failure info
-                    logger.error(f"OUTAGE CONFIRMED - Blame: {blame}")
+                    log_status = logger.warning if status.startswith('DEGRADED') else logger.error
+                    log_status(f"{status} - Blame: {blame}")
                     if not dns_healthy:
                         logger.error(f"  DNS: {results.get('dns', {}).get('failed_domains')}")
                     if not http_healthy:
