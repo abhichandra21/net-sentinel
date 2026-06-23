@@ -8,7 +8,8 @@ from collections import deque
 from diagnostics import (
     check_ping, check_dns, check_http, check_multi_dns, check_multi_http,
     run_traceroute, check_interface_status, run_speedtest,
-    run_cloudflare_speedtest, calculate_jitter, check_router_health
+    run_cloudflare_speedtest, calculate_jitter, check_router_health,
+    detect_isp_gateway
 )
 from notifier import Notifier
 
@@ -326,6 +327,13 @@ def main():
         notifier = DummyNotifier()
     
     targets = config['monitoring']['targets']
+    if not targets.get('isp_gateway'):
+        detected = detect_isp_gateway(targets['router'])
+        if detected:
+            targets['isp_gateway'] = detected
+            logger.info(f"Auto-detected ISP gateway (first hop beyond router): {detected}")
+        else:
+            logger.warning("Could not auto-detect ISP gateway; ISP-equipment layer disabled")
     http_endpoints = config['monitoring'].get('http_endpoints')
     interval = config['monitoring']['interval_seconds']
 

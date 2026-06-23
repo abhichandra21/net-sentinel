@@ -68,6 +68,28 @@ def run_traceroute(target="8.8.8.8"):
     except Exception as e:
         return f"Traceroute failed: {e}"
 
+import re
+
+_HOP_IP = re.compile(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b")
+
+
+def detect_isp_gateway(router_ip="192.168.1.1", target="8.8.8.8"):
+    """
+    Return the first responding hop beyond the router (the ISP/CMTS first hop),
+    or None if it cannot be determined. Parses traceroute output; skips the
+    router itself and any unresponsive (`* * *`) hops.
+    """
+    output = run_traceroute(target)
+    for line in output.splitlines():
+        m = _HOP_IP.search(line)
+        if not m:
+            continue
+        ip = m.group(1)
+        if ip == router_ip:
+            continue
+        return ip
+    return None
+
 def check_interface_status():
     """
     Simple check of local IP routing/interface.
