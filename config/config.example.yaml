@@ -1,0 +1,28 @@
+monitoring:
+  interval_seconds: 30
+  consecutive_failures_threshold: 2
+
+  targets:
+    router: "192.168.1.1"
+    isp_gateway: null
+    public_dns_1: "8.8.8.8"
+    public_dns_2: "1.1.1.1"
+
+  timeouts:
+    dns_seconds: 2.0
+    http_seconds: 10.0
+    ping_seconds: 2.0
+
+  speedtest:
+    use_cloudflare: true
+    interval_hours: 6
+
+mqtt:
+  broker: "192.168.1.50"
+  port: 1883
+  username: "mqtt_user"
+  password: "${MQTT_PASSWORD}"
+  topic_prefix: "home/network/sentinel"
+
+logging:
+  file_path: "/data/network_events.csv"

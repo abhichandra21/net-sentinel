@@ -23,6 +23,27 @@ logger = logging.getLogger("Sentinel")
 # Global latency tracking for jitter calculation (last 10 samples)
 latency_history = deque(maxlen=10)
 
+import re
+
+_ENV_TOKEN = re.compile(r"\$\{([A-Z0-9_]+)\}")
+
+
+def _expand_env(obj):
+    """Recursively replace ${VAR} tokens in string values from os.environ."""
+    if isinstance(obj, dict):
+        return {k: _expand_env(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_expand_env(v) for v in obj]
+    if isinstance(obj, str):
+        def repl(m):
+            name = m.group(1)
+            value = os.environ.get(name)
+            if not value:
+                raise ValueError(f"Required environment variable not set or empty: {name}")
+            return value
+        return _ENV_TOKEN.sub(repl, obj)
+    return obj
+
 def load_config():
     config_path = os.environ.get('CONFIG_PATH', 'config/config.yaml')
     if not os.path.exists(config_path):
@@ -35,7 +56,7 @@ def load_config():
         sys.exit(1)
 
     with open(config_path, 'r') as f:
-        return yaml.safe_load(f)
+        return _expand_env(yaml.safe_load(f))
 
 def perform_health_check(targets, http_endpoints=None, dns_timeout=2.0, http_timeout=10.0, ping_timeout=2.0):
     """

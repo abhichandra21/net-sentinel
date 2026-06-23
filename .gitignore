@@ -1,1 +1,3 @@
 /sentinel/src/__pycache__
+.envrc
+/config/config.yaml
