@@ -128,6 +128,24 @@ mqtt:
       device_class: duration
       unique_id: internet_idle_latency
 
+    - name: "Internet Bufferbloat"
+      state_topic: "home/network/sentinel/bufferbloat_ms/state"
+      unit_of_measurement: "ms"
+      unique_id: internet_bufferbloat
+
+    - name: "Internet Loaded Packet Loss"
+      state_topic: "home/network/sentinel/loaded_loss_pct/state"
+      unit_of_measurement: "%"
+      unique_id: internet_loaded_loss
+
+    - name: "Internet Load Quality Status"
+      state_topic: "home/network/sentinel/load_quality_status/state"
+      unique_id: internet_load_quality_status
+
+    - name: "Internet Load Quality Detail"
+      state_topic: "home/network/sentinel/load_fault_detail/state"
+      unique_id: internet_load_quality_detail
+
 # ============================================================================
 # AUTOMATION EXAMPLES
 # ============================================================================
@@ -163,6 +181,15 @@ automation:
       - platform: state
         entity_id: sensor.internet_fault_blame
         to: "ISP_ROUTING"
+      - platform: state
+        entity_id: sensor.internet_fault_blame
+        to: "LASTMILE_RF_SUSPECT"
+      - platform: state
+        entity_id: sensor.internet_fault_blame
+        to: "ISP_INGRESS_CONGEST"
+      - platform: state
+        entity_id: sensor.internet_fault_blame
+        to: "ISP_CORE_ROUTING"
     action:
       - service: notify.mobile_app
         data:
@@ -187,3 +214,14 @@ automation:
           message: "{{ states('sensor.internet_fault_detail') }} - Check router power and reboot"
           data:
             priority: high
+
+  - alias: "Alert: Network Degraded Under Load"
+    trigger:
+      - platform: state
+        entity_id: sensor.internet_load_quality_status
+        to: "DEGRADED_UNDER_LOAD"
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "Network Degraded Under Load"
+          message: "{{ states('sensor.internet_load_quality_detail') }}"

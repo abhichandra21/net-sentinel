@@ -32,6 +32,10 @@ Net Sentinel provides **clear fault codes** so you know exactly who to call:
 | `ROUTER_DEGRADED`   | Router health 30-60/100      | 🔧 **Check router load/performance**   |
 | `ROUTER_DOWN`       | Router not responding        | 🔧 **Check power and cables**          |
 | `ISP_EQUIPMENT`     | ISP gateway unreachable      | 📞 **Call ISP - their equipment down** |
+| `LASTMILE_RF_SUSPECT` | Inferred modem/RF path failure; no modem telemetry | 📞 Capture evidence and contact ISP |
+| `ISP_INGRESS_CONGEST` | ISP first hop is reachable but abnormally slow | 📞 Contact ISP with first-hop latency |
+| `ISP_CORE_ROUTING` | First hop works but DNS, HTTP, and anchor corroborate upstream failure | 📞 Contact ISP with trace evidence |
+| `DEGRADED_UNDER_LOAD` | Latency or packet loss rises beyond configured load thresholds | 🔧 Review router QoS, then ISP capacity |
 | `ISP_DNS`           | ISP DNS servers failing      | 📞 **Call ISP - DNS issue**            |
 | `ISP_ROUTING`       | ISP routing problem          | 📞 **Call ISP - routing issue**        |
 | `DEGRADED_DNS`      | Partial DNS failures         | ⏳ Monitor - may auto-resolve          |
@@ -68,9 +72,13 @@ Net Sentinel provides **clear fault codes** so you know exactly who to call:
 - **`sensor.internet_dns_success_rate`**: Format "4/4" (successful/total)
 - **`sensor.internet_http_success_rate`**: Format "4/4" (successful/total)
 
-### Speed Test
+### Speed Test & Load Quality
 - **`sensor.internet_download_speed`**: Download bandwidth in Mbit/s
 - **`sensor.internet_idle_latency`**: Idle ICMP RTT measured alongside the speed test
+- **`sensor.internet_load_quality_status`**: `HEALTHY`, `DEGRADED_UNDER_LOAD`, or `UNAVAILABLE`
+- **`sensor.internet_bufferbloat`**: Added RTT in milliseconds while the download load is active
+- **`sensor.internet_loaded_loss`**: ICMP packet-loss percentage while the download load is active
+- **`sensor.internet_load_quality_detail`**: Threshold inputs and confidence for the latest load test
 
 ### Cloud Probe
 - **`input_boolean.cloud_probe_status`**: Is HA reachable from internet?

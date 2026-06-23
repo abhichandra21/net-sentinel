@@ -172,6 +172,9 @@ cards:
             - `ROUTER_CRITICAL` → Router hardware failing (reboot/replace)
             - `ROUTER_DEGRADED` → Router overloaded (check device count)
             - `ROUTER_DOWN` → Router not responding (check power/cables)
+            - `LASTMILE_RF_SUSPECT` → Inferred modem/RF path failure (contact ISP with evidence)
+            - `ISP_INGRESS_CONGEST` → ISP first hop is abnormally slow (contact ISP)
+            - `ISP_CORE_ROUTING` → First hop works but corroborated upstream paths fail (contact ISP)
             - `ISP_DNS` → ISP DNS servers down (call ISP)
             - `ISP_ROUTING` → ISP routing issue (call ISP)
             - `DEGRADED_QUALITY` → Connection unstable (line quality)
@@ -231,6 +234,18 @@ cards:
       labels: false
       points: false
       legend: false
+
+  - type: entities
+    title: Quality Under Load
+    entities:
+      - entity: sensor.internet_load_quality_status
+        name: Load Quality
+      - entity: sensor.internet_bufferbloat
+        name: Added Latency
+      - entity: sensor.internet_loaded_loss
+        name: Packet Loss Under Load
+      - entity: sensor.internet_load_quality_detail
+        name: Load Test Detail
 
   # ═══════════════════════════════════════════════════════════════════════════
   # LATENCY METRICS - Connection quality indicators
