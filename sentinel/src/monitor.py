@@ -110,6 +110,11 @@ def perform_health_check(targets, http_endpoints=None, dns_timeout=2.0, http_tim
     # Calculate current jitter (path RTT standard deviation, ms)
     results['jitter'] = calculate_jitter(list(latency_history))
 
+    # Controlled anchor: a known-good endpoint on our own VPS. Distinguishes
+    # "our uplink is down" from "a specific public service/path is down".
+    anchor_url = targets.get('cloud_anchor')
+    results['anchor'] = check_http(anchor_url, timeout=http_timeout) if anchor_url else None
+
     return results
 
 def publish_path_metrics(notifier, results):

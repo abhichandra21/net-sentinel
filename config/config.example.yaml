@@ -5,6 +5,7 @@ monitoring:
   targets:
     router: "192.168.1.1"
     isp_gateway: null
+    cloud_anchor: null
     public_dns_1: "8.8.8.8"
     public_dns_2: "1.1.1.1"
 
