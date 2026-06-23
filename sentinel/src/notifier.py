@@ -33,6 +33,16 @@ class Notifier:
             "unit_of_measurement": "ms",
             "icon": "mdi:transit-connection-variant",
         },
+        "modem_status": {
+            "name": "Modem Status",
+            "icon": "mdi:modem",
+        },
+        "modem_latency": {
+            "name": "Modem Latency",
+            "unit_of_measurement": "ms",
+            "icon": "mdi:modem",
+            "availability": True,
+        },
         "last_outage": {"name": "Last Outage Reason", "icon": "mdi:alert-circle"},
     }
 
@@ -107,6 +117,12 @@ class Notifier:
             }
             if "unit_of_measurement" in data:
                 config_payload["unit_of_measurement"] = data["unit_of_measurement"]
+            if data.get("availability"):
+                config_payload["availability_topic"] = (
+                    f"{prefix}/{key}/availability"
+                )
+                config_payload["payload_available"] = "online"
+                config_payload["payload_not_available"] = "offline"
 
             topic = f"homeassistant/sensor/netsentinel_{key}/config"
             self.mqtt_client.publish(topic, json.dumps(config_payload), retain=True)
@@ -124,6 +140,18 @@ class Notifier:
         if not self.connected: return
         prefix = self.config['mqtt']['topic_prefix']
         self.mqtt_client.publish(f"{prefix}/{key}/state", str(value), retain=True)
+
+    def update_availability(self, key, available):
+        """Publish retained Home Assistant availability for one discovered sensor."""
+        if not self.connected:
+            return
+        prefix = self.config["mqtt"]["topic_prefix"]
+        payload = "online" if available else "offline"
+        self.mqtt_client.publish(
+            f"{prefix}/{key}/availability",
+            payload,
+            retain=True,
+        )
 
     def log_event(self, event_type, target, details, status):
         """Log to CSV and optionally MQTT"""

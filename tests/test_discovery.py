@@ -7,7 +7,8 @@ PUBLISHED_KEYS = {
     "dns_latency", "dns_success_rate", "http_latency", "http_success_rate",
     "jitter", "download_speed", "upload_speed", "idle_latency", "last_outage",
     "isp_gateway_latency", "bufferbloat_ms", "loaded_loss_pct",
-    "load_quality_status", "load_fault_detail",
+    "load_quality_status", "load_fault_detail", "modem_status",
+    "modem_latency",
 }
 
 
@@ -50,3 +51,48 @@ def test_retired_discovery_topics_are_deleted():
         "",
         True,
     ) in published
+
+
+def test_modem_latency_discovery_has_availability_topic():
+    import json
+    published = []
+
+    class Client:
+        def publish(self, topic, payload, retain=False):
+            published.append((topic, payload, retain))
+
+    notifier = Notifier.__new__(Notifier)
+    notifier.connected = True
+    notifier.config = {"mqtt": {"topic_prefix": "home/network/sentinel"}}
+    notifier.mqtt_client = Client()
+    notifier._publish_discovery()
+
+    topic = "homeassistant/sensor/netsentinel_modem_latency/config"
+    payload = next(json.loads(body) for sent_topic, body, _ in published
+                   if sent_topic == topic)
+    assert payload["availability_topic"] == (
+        "home/network/sentinel/modem_latency/availability"
+    )
+    assert payload["payload_available"] == "online"
+    assert payload["payload_not_available"] == "offline"
+
+
+def test_update_availability_publishes_retained_state():
+    published = []
+
+    class Client:
+        def publish(self, topic, payload, retain=False):
+            published.append((topic, payload, retain))
+
+    notifier = Notifier.__new__(Notifier)
+    notifier.connected = True
+    notifier.config = {"mqtt": {"topic_prefix": "home/network/sentinel"}}
+    notifier.mqtt_client = Client()
+
+    notifier.update_availability("modem_latency", True)
+    notifier.update_availability("modem_latency", False)
+
+    assert published == [
+        ("home/network/sentinel/modem_latency/availability", "online", True),
+        ("home/network/sentinel/modem_latency/availability", "offline", True),
+    ]
