@@ -53,18 +53,17 @@ def check_http(url, timeout=10.0):
         logger.warning(f"HTTP check failed for {url}: {e}")
         return (False, None)
 
-def run_traceroute(target="8.8.8.8"):
+def run_traceroute(target="8.8.8.8", max_hops=10, wait=2, timeout=20):
     """
-    Runs a system traceroute and returns the output as a string.
-    Useful for logs.
+    Run a system traceroute and return its output as a string.
+    Bounded by `timeout` seconds; returns a clear message on timeout.
     """
     try:
-        # -n: Do not resolve IP addresses to their domain names
-        # -m 10: Max 10 hops (for speed)
-        # -w 2: Wait max 2 seconds
-        cmd = ["traceroute", "-n", "-m", "10", "-w", "2", target]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        cmd = ["traceroute", "-n", "-m", str(max_hops), "-w", str(wait), target]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         return result.stdout
+    except subprocess.TimeoutExpired:
+        return f"Traceroute timed out after {timeout}s to {target}"
     except Exception as e:
         return f"Traceroute failed: {e}"
 

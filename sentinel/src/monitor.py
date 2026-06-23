@@ -192,7 +192,7 @@ def diagnose_issue(targets, results, notifier):
     if targets.get('isp_gateway') and results.get('isp_gateway') is None:
         blame = "ISP_EQUIPMENT"
         logger.error("⚠️  FAULT: ISP EQUIPMENT - ISP gateway unreachable")
-        trace = run_traceroute(targets['isp_gateway'])
+        trace = run_traceroute(targets['isp_gateway'], timeout=15)
         notifier.log_event("OUTAGE", "ISP", f"ISP gateway unreachable. Trace: {trace[-200:]}", "CRITICAL")
         notifier.update_state("blame", "ISP_EQUIPMENT")
         notifier.update_state("fault_detail", "ISP gateway down - contact your ISP")
@@ -220,7 +220,7 @@ def diagnose_issue(targets, results, notifier):
             if http_failed_total:
                 blame = "ISP_ROUTING"
                 logger.error("FAULT: ISP ROUTING - DNS and HTTP checks both failed")
-                trace = run_traceroute("8.8.8.8")
+                trace = run_traceroute("8.8.8.8", timeout=15)
                 notifier.log_event(
                     "OUTAGE",
                     "ISP",
@@ -276,7 +276,7 @@ def diagnose_issue(targets, results, notifier):
             # Complete internet failure
             blame = "ISP_ROUTING"
             logger.error(f"⚠️  FAULT: ISP ROUTING - All internet connectivity failed")
-            trace = run_traceroute("8.8.8.8")
+            trace = run_traceroute("8.8.8.8", timeout=15)
             notifier.log_event("OUTAGE", "ISP", f"Internet completely unreachable. Trace: {trace[-200:]}", "CRITICAL")
             notifier.update_state("blame", "ISP_ROUTING")
             notifier.update_state("fault_detail", "Internet unreachable - ISP routing/connection issue")
