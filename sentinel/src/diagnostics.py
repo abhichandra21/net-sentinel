@@ -1,13 +1,90 @@
 import subprocess
-import logging
+import os
 import requests
-import dns.resolver
 import statistics
+import threading
+import dns.resolver
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from ping3 import ping
+import logging
 
 logger = logging.getLogger("Diagnostics")
+
+def check_interface_status(interface="eth0"):
+    """
+    Check if the physical network interface is UP.
+    Requires running on Linux. Returns None if not applicable.
+    """
+    try:
+        if not os.path.exists(f"/sys/class/net/{interface}/operstate"):
+            return None
+        with open(f"/sys/class/net/{interface}/operstate", "r") as f:
+            state = f.read().strip()
+        return state == "up"
+    except Exception as e:
+        logger.warning(f"Could not check interface {interface}: {e}")
+        return None
+
+def _download_load(url, stop_event, ready_event, failed_event):
+    """Continuously stream downloads until stopped; signal after first bytes."""
+    try:
+        while not stop_event.is_set():
+            with requests.get(url, stream=True, timeout=30) as response:
+                response.raise_for_status()
+                for chunk in response.iter_content(chunk_size=65536):
+                    if stop_event.is_set():
+                        return
+                    if chunk:
+                        ready_event.set()
+    except Exception as e:
+        logger.warning(f"Load generator failed: {e}")
+        failed_event.set()
+        ready_event.set()
+
+
+def _successful_pings(host, samples):
+    values = [check_ping(host, timeout=2) for _ in range(samples)]
+    return values, [value for value in values if value is not None]
+
+
+def measure_bufferbloat(host, idle_samples=3, load_samples=3,
+                        load_url="https://speed.cloudflare.com/__down?bytes=100000000"):
+    """Measure RTT and packet loss before and during a verified download load."""
+    idle_all, idle = _successful_pings(host, idle_samples)
+    if not idle:
+        return None
+
+    stop_event = threading.Event()
+    ready_event = threading.Event()
+    failed_event = threading.Event()
+    loader = threading.Thread(
+        target=_download_load,
+        args=(load_url, stop_event, ready_event, failed_event),
+        daemon=True,
+    )
+    loader.start()
+
+    if not ready_event.wait(timeout=5) or failed_event.is_set():
+        stop_event.set()
+        loader.join(timeout=5)
+        return None
+
+    try:
+        loaded_all, loaded = _successful_pings(host, load_samples)
+    finally:
+        stop_event.set()
+        loader.join(timeout=5)
+
+    idle_ms = round(statistics.mean(idle), 2)
+    loaded_ms = round(statistics.mean(loaded), 2) if loaded else None
+    return {
+        'idle_ms': idle_ms,
+        'loaded_ms': loaded_ms,
+        'bloat_ms': round(loaded_ms - idle_ms, 2) if loaded_ms is not None else None,
+        'idle_loss_pct': round((idle_all.count(None) / idle_samples) * 100, 1),
+        'loaded_loss_pct': round((loaded_all.count(None) / load_samples) * 100, 1),
+    }
 
 def check_ping(host, count=1, timeout=2):
     """
@@ -53,20 +130,45 @@ def check_http(url, timeout=10.0):
         logger.warning(f"HTTP check failed for {url}: {e}")
         return (False, None)
 
-def run_traceroute(target="8.8.8.8"):
+def run_traceroute(target="8.8.8.8", max_hops=10, wait=2, timeout=20):
     """
-    Runs a system traceroute and returns the output as a string.
-    Useful for logs.
+    Run a system traceroute and return its output as a string.
+    Bounded by `timeout` seconds; returns a clear message on timeout.
     """
     try:
-        # -n: Do not resolve IP addresses to their domain names
-        # -m 10: Max 10 hops (for speed)
-        # -w 2: Wait max 2 seconds
-        cmd = ["traceroute", "-n", "-m", "10", "-w", "2", target]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        cmd = ["traceroute", "-n", "-m", str(max_hops), "-w", str(wait), target]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         return result.stdout
+    except subprocess.TimeoutExpired:
+        return f"Traceroute timed out after {timeout}s to {target}"
     except Exception as e:
         return f"Traceroute failed: {e}"
+
+import re
+
+_HOP_IP = re.compile(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b")
+_HOP_LINE = re.compile(r"^\s*\d+\s+(.*)$")
+
+
+def detect_isp_gateway(router_ip="192.168.1.1", target="8.8.8.8"):
+    """
+    Return the first responding hop beyond the router (the ISP/CMTS first hop),
+    or None if it cannot be determined. Parses traceroute output; skips the
+    router itself and any unresponsive (`* * *`) hops.
+    """
+    output = run_traceroute(target)
+    for line in output.splitlines():
+        hop = _HOP_LINE.match(line)
+        if not hop:
+            continue
+        ip_match = _HOP_IP.search(hop.group(1))
+        if not ip_match:
+            continue
+        ip = ip_match.group(1)
+        if ip == router_ip:
+            continue
+        return ip
+    return None
 
 def check_interface_status():
     """
@@ -262,31 +364,29 @@ def calculate_router_health_score(latencies, failures, total_samples):
 
 def run_cloudflare_speedtest():
     """
-    Run Cloudflare speed test using their API.
-    Returns dict with download/upload speeds in Mbps.
+    Measure download throughput via Cloudflare and idle latency via ping.
+    Returns {'download_mbps': float, 'latency_ms': float|None}.
+    Note: latency is a real RTT to the speed host, NOT the download duration.
     """
     try:
-        # Cloudflare speed test endpoint
-        # Using a simple download test
-        test_url = "https://speed.cloudflare.com/__down?bytes=25000000"  # 25MB download
+        test_url = "https://speed.cloudflare.com/__down?bytes=25000000"  # 25MB
 
         start = time.time()
         response = requests.get(test_url, timeout=30)
         duration = time.time() - start
 
-        if response.status_code == 200:
-            bytes_downloaded = len(response.content)
-            # Convert to Mbps: (bytes * 8) / (duration * 1000000)
-            download_mbps = round((bytes_downloaded * 8) / (duration * 1000000), 2)
-
-            return {
-                'download_mbps': download_mbps,
-                'latency_ms': round(duration * 1000, 2)
-            }
-        else:
+        if response.status_code != 200:
             logger.error(f"Cloudflare speedtest failed with status {response.status_code}")
             return None
 
+        bytes_downloaded = len(response.content)
+        download_mbps = round((bytes_downloaded * 8) / (duration * 1000000), 2)
+        latency_ms = check_ping("speed.cloudflare.com", timeout=2)
+
+        return {
+            'download_mbps': download_mbps,
+            'latency_ms': latency_ms,
+        }
     except Exception as e:
         logger.error(f"Cloudflare speedtest failed: {e}")
         return None

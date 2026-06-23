@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   net-sentinel:
     build: ./sentinel
@@ -12,6 +10,7 @@ services:
       - ./data:/data
     environment:
       - CONFIG_PATH=/app/config/config.yaml
+      - MQTT_PASSWORD=${MQTT_PASSWORD:?MQTT_PASSWORD must be set}
     logging:
       driver: "json-file"
       options:

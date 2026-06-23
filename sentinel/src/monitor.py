@@ -8,8 +8,10 @@ from collections import deque
 from diagnostics import (
     check_ping, check_dns, check_http, check_multi_dns, check_multi_http,
     run_traceroute, check_interface_status, run_speedtest,
-    run_cloudflare_speedtest, calculate_jitter, check_router_health
+    run_cloudflare_speedtest, calculate_jitter, check_router_health,
+    detect_isp_gateway, measure_bufferbloat
 )
+from classify import classify_connectivity, requires_diagnosis, classify_load
 from notifier import Notifier
 
 # Configure Logging
@@ -23,6 +25,27 @@ logger = logging.getLogger("Sentinel")
 # Global latency tracking for jitter calculation (last 10 samples)
 latency_history = deque(maxlen=10)
 
+import re
+
+_ENV_TOKEN = re.compile(r"\$\{([A-Z0-9_]+)\}")
+
+
+def _expand_env(obj):
+    """Recursively replace ${VAR} tokens in string values from os.environ."""
+    if isinstance(obj, dict):
+        return {k: _expand_env(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_expand_env(v) for v in obj]
+    if isinstance(obj, str):
+        def repl(m):
+            name = m.group(1)
+            value = os.environ.get(name)
+            if not value:
+                raise ValueError(f"Required environment variable not set or empty: {name}")
+            return value
+        return _ENV_TOKEN.sub(repl, obj)
+    return obj
+
 def load_config():
     config_path = os.environ.get('CONFIG_PATH', 'config/config.yaml')
     if not os.path.exists(config_path):
@@ -35,7 +58,7 @@ def load_config():
         sys.exit(1)
 
     with open(config_path, 'r') as f:
-        return yaml.safe_load(f)
+        return _expand_env(yaml.safe_load(f))
 
 def perform_health_check(targets, http_endpoints=None, dns_timeout=2.0, http_timeout=10.0, ping_timeout=2.0):
     """
@@ -50,9 +73,19 @@ def perform_health_check(targets, http_endpoints=None, dns_timeout=2.0, http_tim
     # Layer 1: Local network (your router) - basic ping
     results['router'] = check_ping(targets['router'], timeout=ping_timeout)
 
-    # Layer 2: ISP gateway (if configured)
-    if targets.get('isp_gateway'):
-        results['isp_gateway'] = check_ping(targets['isp_gateway'], timeout=ping_timeout)
+    # Layer 2: Cable modem management address (if configured)
+    modem_ip = targets.get('modem')
+    results['modem_configured'] = bool(modem_ip)
+    results['modem'] = (
+        check_ping(modem_ip, timeout=ping_timeout) if modem_ip else None
+    )
+
+    # Layer 3: ISP gateway (if configured)
+    gateway_ip = targets.get('isp_gateway')
+    results['isp_gateway_configured'] = bool(gateway_ip)
+    results['isp_gateway'] = (
+        check_ping(gateway_ip, timeout=ping_timeout) if gateway_ip else None
+    )
 
     # Layer 3: DNS resolution across multiple domains.
     # Prefer DNS servers from configuration if provided so DNS failures
@@ -77,50 +110,103 @@ def perform_health_check(targets, http_endpoints=None, dns_timeout=2.0, http_tim
         http_results = check_multi_http(timeout=http_timeout)
     results['http'] = http_results
 
-    # Track latency for jitter calculation
-    if http_results['avg_latency']:
-        latency_history.append(http_results['avg_latency'])
+    # Track ICMP RTT to the router for jitter. HTTP latency includes
+    # DNS+TCP+TLS+server time and is not a measure of path stability.
+    if results['router'] is not None:
+        latency_history.append(results['router'])
 
-    # Calculate current jitter
+    # Calculate current jitter (path RTT standard deviation, ms)
     results['jitter'] = calculate_jitter(list(latency_history))
+
+    # Controlled anchor: a known-good endpoint on our own VPS. Distinguishes
+    # "our uplink is down" from "a specific public service/path is down".
+    anchor_url = targets.get('cloud_anchor')
+    results['anchor'] = check_http(anchor_url, timeout=http_timeout) if anchor_url else None
 
     return results
 
-def perform_speedtest(notifier, use_cloudflare=True):
-    """
-    Run speed test and report results.
-    Tries Cloudflare first (faster), falls back to speedtest-cli.
-    """
+def publish_path_metrics(notifier, results):
+    """Publish path observations independently of overall health state."""
+    if results.get('isp_gateway') is not None:
+        notifier.update_state('isp_gateway_latency', results['isp_gateway'])
+
+    if not results.get('modem_configured', False):
+        notifier.update_state('modem_status', 'NOT_CONFIGURED')
+        notifier.update_availability('modem_latency', False)
+    elif results.get('modem') is None:
+        notifier.update_state('modem_status', 'UNREACHABLE')
+        notifier.update_availability('modem_latency', False)
+    else:
+        notifier.update_state('modem_status', 'REACHABLE')
+        notifier.update_availability('modem_latency', True)
+        notifier.update_state('modem_latency', results['modem'])
+
+def perform_speedtest(notifier, targets, speedtest_config=None, thresholds=None):
+    """Measure throughput, then independently measure and classify load quality."""
+    speedtest_config = speedtest_config or {}
+    thresholds = thresholds or {}
+    use_cloudflare = speedtest_config.get('use_cloudflare', True)
     logger.info("Running scheduled speedtest...")
 
-    if use_cloudflare:
-        cf_result = run_cloudflare_speedtest()
-        if cf_result:
-            logger.info(f"Cloudflare Speedtest - Down: {cf_result['download_mbps']} Mbps")
-            notifier.update_state("download_speed", cf_result['download_mbps'])
-            notifier.update_state("speedtest_latency", cf_result['latency_ms'])
-            return
+    cloudflare_result = run_cloudflare_speedtest() if use_cloudflare else None
+    if cloudflare_result:
+        notifier.update_state('download_speed', cloudflare_result['download_mbps'])
+        if cloudflare_result['latency_ms'] is not None:
+            notifier.update_state('idle_latency', cloudflare_result['latency_ms'])
+    else:
+        output = run_speedtest()
+        if output:
+            try:
+                lines = output.splitlines()
+                notifier.update_state('download_speed', lines[1].split(' ')[1])
+                notifier.update_state('upload_speed', lines[2].split(' ')[1])
+            except Exception as e:
+                logger.error(f"Failed to parse speedtest output: {e}")
 
-    # Fallback to speedtest-cli
-    output = run_speedtest()
-    if output:
-        try:
-            lines = output.splitlines()
-            download = lines[1].split(' ')[1]
-            upload = lines[2].split(' ')[1]
-            logger.info(f"Speedtest Result - Down: {download} Mbps, Up: {upload} Mbps")
-            notifier.update_state("download_speed", download)
-            notifier.update_state("upload_speed", upload)
-        except Exception as e:
-            logger.error(f"Failed to parse speedtest output: {e}")
-            logger.debug(f"Output was: {output}")
+    load_target = targets.get('isp_gateway') or '8.8.8.8'
+    load_result = measure_bufferbloat(load_target)
+    if load_result is None:
+        notifier.update_state('load_quality_status', 'UNAVAILABLE')
+        notifier.update_state('load_fault_detail', 'Load generator or idle RTT unavailable')
+        return
 
-def diagnose_issue(targets, results, notifier):
+    if load_result['bloat_ms'] is not None:
+        notifier.update_state('bufferbloat_ms', load_result['bloat_ms'])
+    notifier.update_state('loaded_loss_pct', load_result['loaded_loss_pct'])
+
+    code, confidence = classify_load(
+        load_result,
+        bloat_threshold_ms=thresholds.get('bufferbloat_ms', 50),
+        loaded_loss_threshold_pct=thresholds.get('loaded_loss_pct', 5),
+    )
+    status = code or 'HEALTHY'
+    detail = (
+        f"bloat={load_result['bloat_ms']}ms, "
+        f"loaded_loss={load_result['loaded_loss_pct']}%, "
+        f"confidence={confidence:.2f}"
+    )
+    notifier.update_state('load_quality_status', status)
+    notifier.update_state('load_fault_detail', detail)
+    if code:
+        notifier.log_event('DEGRADED', 'LoadQuality', detail, 'WARNING')
+
+def diagnose_issue(targets, results, notifier, ingress_latency_ms=120,
+                   jitter_threshold_ms=50):
     """
     Fault isolation: determine if it's YOUR equipment or the ISP.
     Returns clear blame attribution.
     """
     logger.info("Issue detected. Starting fault isolation...")
+
+    # Basic reachability is authoritative. Detailed router-health probes also
+    # fail when the router is absent, but that must not mask ROUTER_DOWN.
+    if results.get('router') is None:
+        blame = "ROUTER_DOWN"
+        logger.error("⚠️  FAULT: ROUTER DOWN - Router is unreachable")
+        notifier.log_event("OUTAGE", "Router", "Router is not responding to ping", "CRITICAL")
+        notifier.update_state("blame", "ROUTER_DOWN")
+        notifier.update_state("fault_detail", "Router not responding to ping - check power and cables")
+        return blame
 
     # Layer 0: ROUTER HEALTH (detailed check)
     router_health = results.get('router_health', {})
@@ -155,24 +241,27 @@ def diagnose_issue(targets, results, notifier):
             # If ISP also has issues, continue to ISP diagnosis
             logger.warning(f"Router degraded (score: {health_score}/100) but ISP also has issues - checking ISP...")
 
-    # Layer 1: YOUR ROUTER/MODEM - Basic reachability
-    if results['router'] is None:
-        blame = "ROUTER_DOWN"
-        logger.error("⚠️  FAULT: ROUTER DOWN - Router is unreachable")
-        notifier.log_event("OUTAGE", "Router", "Router is not responding to ping", "CRITICAL")
-        notifier.update_state("blame", "ROUTER_DOWN")
-        notifier.update_state("fault_detail", "Router not responding to ping - check power and cables")
-        return blame
-
-    # Layer 2: ISP GATEWAY/EQUIPMENT
-    if targets.get('isp_gateway') and results.get('isp_gateway') is None:
-        blame = "ISP_EQUIPMENT"
-        logger.error("⚠️  FAULT: ISP EQUIPMENT - ISP gateway unreachable")
-        trace = run_traceroute(targets['isp_gateway'])
-        notifier.log_event("OUTAGE", "ISP", f"ISP gateway unreachable. Trace: {trace[-200:]}", "CRITICAL")
-        notifier.update_state("blame", "ISP_EQUIPMENT")
-        notifier.update_state("fault_detail", "ISP gateway down - contact your ISP")
-        return blame
+    code, confidence = classify_connectivity(results, ingress_latency_ms)
+    if code:
+        degraded_codes = {"ISP_INGRESS_CONGEST", "DEGRADED_INTERNET"}
+        severity = "WARNING" if code in degraded_codes else "CRITICAL"
+        event_type = "DEGRADED" if severity == "WARNING" else "OUTAGE"
+        details = {
+            "MODEM_DOWN": "Cable modem is unreachable while the router is up; check modem power and coax",
+            "LASTMILE_RF_SUSPECT": "ISP first hop is unreachable; last-mile or RF failure suspected",
+            "ISP_INGRESS_CONGEST": "ISP first-hop latency is above the configured threshold",
+            "ISP_CORE_ROUTING": "ISP first hop responds but public connectivity is unavailable",
+            "DEGRADED_INTERNET": "Public checks failed while the controlled anchor remained reachable",
+        }
+        detail = f"{details.get(code, code)} (confidence {confidence:.2f})"
+        trace = run_traceroute("8.8.8.8", timeout=15)
+        target = "Modem" if code == "MODEM_DOWN" else "ISP"
+        notifier.log_event(
+            event_type, target, f"{detail}. Trace: {trace[-200:]}", severity,
+        )
+        notifier.update_state("blame", code)
+        notifier.update_state("fault_detail", detail)
+        return code
 
     # Layer 3: DNS FAILURES (likely resolver or upstream DNS issues)
     dns_check = results.get('dns', {})
@@ -196,7 +285,7 @@ def diagnose_issue(targets, results, notifier):
             if http_failed_total:
                 blame = "ISP_ROUTING"
                 logger.error("FAULT: ISP ROUTING - DNS and HTTP checks both failed")
-                trace = run_traceroute("8.8.8.8")
+                trace = run_traceroute("8.8.8.8", timeout=15)
                 notifier.log_event(
                     "OUTAGE",
                     "ISP",
@@ -252,7 +341,7 @@ def diagnose_issue(targets, results, notifier):
             # Complete internet failure
             blame = "ISP_ROUTING"
             logger.error(f"⚠️  FAULT: ISP ROUTING - All internet connectivity failed")
-            trace = run_traceroute("8.8.8.8")
+            trace = run_traceroute("8.8.8.8", timeout=15)
             notifier.log_event("OUTAGE", "ISP", f"Internet completely unreachable. Trace: {trace[-200:]}", "CRITICAL")
             notifier.update_state("blame", "ISP_ROUTING")
             notifier.update_state("fault_detail", "Internet unreachable - ISP routing/connection issue")
@@ -268,7 +357,7 @@ def diagnose_issue(targets, results, notifier):
 
     # Layer 5: HIGH JITTER (degraded connection quality)
     jitter = results.get('jitter')
-    if jitter and jitter > 50:  # >50ms jitter is bad
+    if jitter is not None and jitter > jitter_threshold_ms:
         blame = "DEGRADED_QUALITY"
         logger.warning(f"⚠️  DEGRADED: High jitter detected ({jitter}ms) - poor connection quality")
         notifier.log_event("DEGRADED", "Quality", f"High jitter: {jitter}ms - connection unstable", "WARNING")
@@ -299,14 +388,23 @@ def main():
             def __init__(self): pass
             def update_state(self, key, value): 
                 logger.info(f"Would update {key} to {value}")
+            def update_availability(self, key, available):
+                logger.info(f"Would update {key} availability to {available}")
             def log_event(self, *args): pass
             @property
             def connected(self): return False
         notifier = DummyNotifier()
     
     targets = config['monitoring']['targets']
+    if not targets.get('isp_gateway'):
+        detected = detect_isp_gateway(targets['router'])
+        if detected:
+            targets['isp_gateway'] = detected
+            logger.info(f"Auto-detected ISP gateway (first hop beyond router): {detected}")
+        else:
+            logger.warning("Could not auto-detect ISP gateway; ISP-equipment layer disabled")
     http_endpoints = config['monitoring'].get('http_endpoints')
-    interval = config['monitoring']['interval_seconds']
+    interval = config['monitoring'].get('interval_seconds')
 
     # Read timeout and threshold configuration
     timeouts = config['monitoring'].get('timeouts', {})
@@ -315,6 +413,20 @@ def main():
     ping_timeout = timeouts.get('ping_seconds', 2.0)
     consecutive_failures_threshold = config['monitoring'].get('consecutive_failures_threshold', 3)
 
+    thresholds = config['monitoring'].get('thresholds', {})
+    ingress_latency_ms = thresholds.get('ingress_latency_ms', 120)
+    jitter_threshold_ms = thresholds.get('jitter_ms', 50)
+
+    speedtest_config = config['monitoring'].get('speedtest', {})
+    speedtest_interval_hours = speedtest_config.get('interval_hours', 6)
+    schedule.every(speedtest_interval_hours).hours.do(
+        perform_speedtest,
+        notifier=notifier,
+        targets=targets,
+        speedtest_config=speedtest_config,
+        thresholds=thresholds,
+    )
+
     logger.info("Network Sentinel Started.")
     logger.info(f"Configuration: DNS timeout={dns_timeout}s, HTTP timeout={http_timeout}s, Failure threshold={consecutive_failures_threshold}")
     if notifier.connected:
@@ -322,8 +434,6 @@ def main():
     else:
         logger.info("MQTT not available, running in offline mode")
 
-    # Schedule Speedtest every 6 hours
-    schedule.every(6).hours.do(perform_speedtest, notifier=notifier)
 
     consecutive_failures = 0
 
@@ -342,11 +452,17 @@ def main():
             )
 
             # Determine health status
+            publish_path_metrics(notifier, results)
+
             dns_healthy = results.get('dns', {}).get('all_succeeded', False)
             http_healthy = results.get('http', {}).get('all_succeeded', False)
             router_healthy = results['router'] is not None
 
-            is_healthy = router_healthy and dns_healthy and http_healthy
+            is_healthy = not requires_diagnosis(
+                results,
+                ingress_latency_ms=ingress_latency_ms,
+                jitter_ms=jitter_threshold_ms,
+            )
 
             if is_healthy:
                 consecutive_failures = 0
@@ -384,11 +500,26 @@ def main():
 
                 if consecutive_failures >= consecutive_failures_threshold:
                     notifier.update_state("status", "DIAGNOSING")
-                    blame = diagnose_issue(targets, results, notifier)
-                    notifier.update_state("status", f"OUTAGE_{blame}")
+                    blame = diagnose_issue(
+                        targets,
+                        results,
+                        notifier,
+                        ingress_latency_ms=ingress_latency_ms,
+                        jitter_threshold_ms=jitter_threshold_ms,
+                    )
+                    if blame == 'ISP_INGRESS_CONGEST':
+                        status = 'DEGRADED_ISP_INGRESS_CONGEST'
+                    elif 'DEGRADED' in blame:
+                        status = blame
+                    elif blame == 'TRANSIENT':
+                        status = 'TRANSIENT'
+                    else:
+                        status = f'OUTAGE_{blame}'
+                    notifier.update_state('status', status)
 
                     # Log detailed failure info
-                    logger.error(f"OUTAGE CONFIRMED - Blame: {blame}")
+                    log_status = logger.warning if status.startswith('DEGRADED') else logger.error
+                    log_status(f"{status} - Blame: {blame}")
                     if not dns_healthy:
                         logger.error(f"  DNS: {results.get('dns', {}).get('failed_domains')}")
                     if not http_healthy:

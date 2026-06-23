@@ -25,7 +25,10 @@ mqtt:
       # - ROUTER_CRITICAL (router health < 30/100)
       # - ROUTER_DEGRADED (router health < 60/100)
       # - ROUTER_DOWN (router not responding)
-      # - ISP_EQUIPMENT (ISP gateway unreachable)
+      # - MODEM_DOWN (direct modem failure corroborated by gateway + public checks)
+      # - LASTMILE_RF_SUSPECT (first-hop/last-mile failure without proof modem is down)
+      # - ISP_INGRESS_CONGEST (slow ISP first hop)
+      # - ISP_CORE_ROUTING (upstream ISP routing failure)
       # - ISP_DNS (ISP DNS servers down)
       # - ISP_ROUTING (ISP routing/connection issue)
       # - DEGRADED_DNS (partial DNS failure)
@@ -67,6 +70,22 @@ mqtt:
     # ============================================================================
     # LATENCY METRICS
     # ============================================================================
+    - name: "Internet Modem Status"
+      state_topic: "home/network/sentinel/modem_status/state"
+      icon: mdi:modem
+      unique_id: internet_modem_status
+      # Values: REACHABLE, UNREACHABLE, NOT_CONFIGURED
+
+    - name: "Internet Modem Latency"
+      state_topic: "home/network/sentinel/modem_latency/state"
+      availability_topic: "home/network/sentinel/modem_latency/availability"
+      payload_available: "online"
+      payload_not_available: "offline"
+      unit_of_measurement: "ms"
+      icon: mdi:modem
+      device_class: duration
+      unique_id: internet_modem_latency
+
     - name: "Internet Router Latency"
       state_topic: "home/network/sentinel/router_latency/state"
       unit_of_measurement: "ms"
@@ -121,12 +140,30 @@ mqtt:
       device_class: data_rate
       unique_id: internet_download_speed
 
-    - name: "Internet Speedtest Latency"
-      state_topic: "home/network/sentinel/speedtest_latency/state"
+    - name: "Internet Idle Latency"
+      state_topic: "home/network/sentinel/idle_latency/state"
       unit_of_measurement: "ms"
       icon: mdi:speedometer
       device_class: duration
-      unique_id: internet_speedtest_latency
+      unique_id: internet_idle_latency
+
+    - name: "Internet Bufferbloat"
+      state_topic: "home/network/sentinel/bufferbloat_ms/state"
+      unit_of_measurement: "ms"
+      unique_id: internet_bufferbloat
+
+    - name: "Internet Loaded Packet Loss"
+      state_topic: "home/network/sentinel/loaded_loss_pct/state"
+      unit_of_measurement: "%"
+      unique_id: internet_loaded_loss
+
+    - name: "Internet Load Quality Status"
+      state_topic: "home/network/sentinel/load_quality_status/state"
+      unique_id: internet_load_quality_status
+
+    - name: "Internet Load Quality Detail"
+      state_topic: "home/network/sentinel/load_fault_detail/state"
+      unique_id: internet_load_quality_detail
 
 # ============================================================================
 # AUTOMATION EXAMPLES
@@ -156,13 +193,22 @@ automation:
     trigger:
       - platform: state
         entity_id: sensor.internet_fault_blame
-        to: "ISP_EQUIPMENT"
+        to: "MODEM_DOWN"
       - platform: state
         entity_id: sensor.internet_fault_blame
         to: "ISP_DNS"
       - platform: state
         entity_id: sensor.internet_fault_blame
         to: "ISP_ROUTING"
+      - platform: state
+        entity_id: sensor.internet_fault_blame
+        to: "LASTMILE_RF_SUSPECT"
+      - platform: state
+        entity_id: sensor.internet_fault_blame
+        to: "ISP_INGRESS_CONGEST"
+      - platform: state
+        entity_id: sensor.internet_fault_blame
+        to: "ISP_CORE_ROUTING"
     action:
       - service: notify.mobile_app
         data:
@@ -187,3 +233,14 @@ automation:
           message: "{{ states('sensor.internet_fault_detail') }} - Check router power and reboot"
           data:
             priority: high
+
+  - alias: "Alert: Network Degraded Under Load"
+    trigger:
+      - platform: state
+        entity_id: sensor.internet_load_quality_status
+        to: "DEGRADED_UNDER_LOAD"
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "Network Degraded Under Load"
+          message: "{{ states('sensor.internet_load_quality_detail') }}"

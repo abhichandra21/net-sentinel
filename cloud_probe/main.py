@@ -50,6 +50,45 @@ def notify_home_assistant(webhook_url, status, latency):
     except Exception as e:
         logger.error(f"Failed to notify Home Assistant: {e}")
 
+def update_debounce(state, is_up, latency, threshold):
+    """
+    Debounce flapping observations. Returns (new_state, changed).
+    Status flips only after `threshold` consecutive same-direction reads.
+    """
+    desired = "online" if is_up else "offline"
+    if desired == state["status"]:
+        stable_latency = latency if desired == "online" else None
+        return {
+            "status": state["status"],
+            "streak": 0,
+            "pending_status": None,
+            "latency": stable_latency,
+        }, False
+    if desired == state.get("pending_status"):
+        streak = state["streak"] + 1
+    else:
+        streak = 1
+    if streak >= threshold:
+        stable_latency = latency if desired == "online" else None
+        return {
+            "status": desired,
+            "streak": 0,
+            "pending_status": None,
+            "latency": stable_latency,
+        }, True
+    return {
+        "status": state["status"],
+        "streak": streak,
+        "pending_status": desired,
+        "latency": state.get("latency"),
+    }, False
+
+def notification_for_state(state):
+    """Return webhook arguments for a confirmed status, else None."""
+    if state["status"] is None:
+        return None
+    return (state["status"] == "online", state.get("latency"))
+
 def main():
     parser = argparse.ArgumentParser(description='Cloud Probe for Home Network')
     parser.add_argument('--target', required=True, help='Home URL to check (e.g., https://homeassistant.abhichandra.com)')
@@ -59,18 +98,21 @@ def main():
 
     logger.info(f"Starting Cloud Probe targeting {args.target}")
 
+    state = {
+        "status": None,
+        "streak": 0,
+        "pending_status": None,
+        "latency": None,
+    }
+    threshold = 3
     while True:
         is_up, latency = check_home_connectivity(args.target)
-
-        if is_up:
-            latency_str = f"{latency:.2f}" if latency is not None else "unknown"
-            logger.info(f"Home is UP. Latency: {latency_str}ms")
-        else:
-            logger.warning("Home is DOWN.")
-
-        # Always notify (or notify on change - keeping it simple here)
-        notify_home_assistant(args.webhook, is_up, latency)
-
+        state, changed = update_debounce(state, is_up, latency, threshold)
+        if changed:
+            logger.info(f"State change -> {state['status']}")
+        notification = notification_for_state(state)
+        if notification is not None:
+            notify_home_assistant(args.webhook, *notification)
         time.sleep(args.interval)
 
 if __name__ == "__main__":
