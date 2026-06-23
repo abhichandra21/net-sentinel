@@ -110,7 +110,7 @@ cards:
         primary_info: state
         secondary_info: name
       - type: custom:mushroom-entity-card
-        entity: sensor.internet_speedtest_latency
+        entity: sensor.internet_idle_latency
         name: Ping
         icon: mdi:speedometer
         icon_color: green
@@ -235,7 +235,7 @@ cards:
         name: HTTP Request
       - entity: sensor.internet_jitter
         name: Connection Jitter
-      - entity: sensor.internet_speedtest_latency
+      - entity: sensor.internet_idle_latency
         name: Speedtest Ping
       - type: section
         label: Performance

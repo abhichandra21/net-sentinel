@@ -70,7 +70,7 @@ Net Sentinel provides **clear fault codes** so you know exactly who to call:
 
 ### Speed Test
 - **`sensor.internet_download_speed`**: Download bandwidth in Mbit/s
-- **`sensor.internet_speedtest_latency`**: Latency during speed test
+- **`sensor.internet_idle_latency`**: Idle ICMP RTT measured alongside the speed test
 
 ### Cloud Probe
 - **`input_boolean.cloud_probe_status`**: Is HA reachable from internet?

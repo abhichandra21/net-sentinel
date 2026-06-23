@@ -121,12 +121,12 @@ mqtt:
       device_class: data_rate
       unique_id: internet_download_speed
 
-    - name: "Internet Speedtest Latency"
-      state_topic: "home/network/sentinel/speedtest_latency/state"
+    - name: "Internet Idle Latency"
+      state_topic: "home/network/sentinel/idle_latency/state"
       unit_of_measurement: "ms"
       icon: mdi:speedometer
       device_class: duration
-      unique_id: internet_speedtest_latency
+      unique_id: internet_idle_latency
 
 # ============================================================================
 # AUTOMATION EXAMPLES

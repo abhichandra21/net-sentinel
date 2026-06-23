@@ -121,7 +121,8 @@ def perform_speedtest(notifier, use_cloudflare=True):
         if cf_result:
             logger.info(f"Cloudflare Speedtest - Down: {cf_result['download_mbps']} Mbps")
             notifier.update_state("download_speed", cf_result['download_mbps'])
-            notifier.update_state("speedtest_latency", cf_result['latency_ms'])
+            if cf_result['latency_ms'] is not None:
+                notifier.update_state("idle_latency", cf_result['latency_ms'])
             return
 
     # Fallback to speedtest-cli

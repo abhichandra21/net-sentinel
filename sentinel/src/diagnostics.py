@@ -284,31 +284,29 @@ def calculate_router_health_score(latencies, failures, total_samples):
 
 def run_cloudflare_speedtest():
     """
-    Run Cloudflare speed test using their API.
-    Returns dict with download/upload speeds in Mbps.
+    Measure download throughput via Cloudflare and idle latency via ping.
+    Returns {'download_mbps': float, 'latency_ms': float|None}.
+    Note: latency is a real RTT to the speed host, NOT the download duration.
     """
     try:
-        # Cloudflare speed test endpoint
-        # Using a simple download test
-        test_url = "https://speed.cloudflare.com/__down?bytes=25000000"  # 25MB download
+        test_url = "https://speed.cloudflare.com/__down?bytes=25000000"  # 25MB
 
         start = time.time()
         response = requests.get(test_url, timeout=30)
         duration = time.time() - start
 
-        if response.status_code == 200:
-            bytes_downloaded = len(response.content)
-            # Convert to Mbps: (bytes * 8) / (duration * 1000000)
-            download_mbps = round((bytes_downloaded * 8) / (duration * 1000000), 2)
-
-            return {
-                'download_mbps': download_mbps,
-                'latency_ms': round(duration * 1000, 2)
-            }
-        else:
+        if response.status_code != 200:
             logger.error(f"Cloudflare speedtest failed with status {response.status_code}")
             return None
 
+        bytes_downloaded = len(response.content)
+        download_mbps = round((bytes_downloaded * 8) / (duration * 1000000), 2)
+        latency_ms = check_ping("speed.cloudflare.com", timeout=2)
+
+        return {
+            'download_mbps': download_mbps,
+            'latency_ms': latency_ms,
+        }
     except Exception as e:
         logger.error(f"Cloudflare speedtest failed: {e}")
         return None

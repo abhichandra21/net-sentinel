@@ -206,7 +206,7 @@ cards:
           action: more-info
 
       - type: custom:mushroom-entity-card
-        entity: sensor.internet_speedtest_latency
+        entity: sensor.internet_idle_latency
         name: Speedtest Ping
         icon: mdi:speedometer
         icon_color: green
@@ -416,7 +416,7 @@ cards:
         name: HTTP Reliability
       - entity: sensor.internet_download_speed
         name: Download Throughput
-      - entity: sensor.internet_speedtest_latency
+      - entity: sensor.internet_idle_latency
         name: Speedtest Ping
       - entity: sensor.internet_fault_blame
         name: Last Fault
