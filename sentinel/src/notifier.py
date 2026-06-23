@@ -24,6 +24,11 @@ class Notifier:
         "download_speed": {"name": "Download Speed", "unit_of_measurement": "Mbps", "icon": "mdi:download"},
         "upload_speed": {"name": "Upload Speed", "unit_of_measurement": "Mbps", "icon": "mdi:upload"},
         "idle_latency": {"name": "Idle Latency", "unit_of_measurement": "ms", "icon": "mdi:speedometer"},
+        "isp_gateway_latency": {
+            "name": "ISP First-Hop Latency",
+            "unit_of_measurement": "ms",
+            "icon": "mdi:transit-connection-variant",
+        },
         "last_outage": {"name": "Last Outage Reason", "icon": "mdi:alert-circle"},
     }
 

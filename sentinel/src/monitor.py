@@ -73,8 +73,11 @@ def perform_health_check(targets, http_endpoints=None, dns_timeout=2.0, http_tim
     results['router'] = check_ping(targets['router'], timeout=ping_timeout)
 
     # Layer 2: ISP gateway (if configured)
-    if targets.get('isp_gateway'):
-        results['isp_gateway'] = check_ping(targets['isp_gateway'], timeout=ping_timeout)
+    gateway_ip = targets.get('isp_gateway')
+    results['isp_gateway_configured'] = bool(gateway_ip)
+    results['isp_gateway'] = (
+        check_ping(gateway_ip, timeout=ping_timeout) if gateway_ip else None
+    )
 
     # Layer 3: DNS resolution across multiple domains.
     # Prefer DNS servers from configuration if provided so DNS failures
@@ -108,6 +111,11 @@ def perform_health_check(targets, http_endpoints=None, dns_timeout=2.0, http_tim
     results['jitter'] = calculate_jitter(list(latency_history))
 
     return results
+
+def publish_path_metrics(notifier, results):
+    """Publish path observations independently of overall health state."""
+    if results.get('isp_gateway') is not None:
+        notifier.update_state('isp_gateway_latency', results['isp_gateway'])
 
 def perform_speedtest(notifier, use_cloudflare=True):
     """
@@ -373,6 +381,8 @@ def main():
             )
 
             # Determine health status
+            publish_path_metrics(notifier, results)
+
             dns_healthy = results.get('dns', {}).get('all_succeeded', False)
             http_healthy = results.get('http', {}).get('all_succeeded', False)
             router_healthy = results['router'] is not None

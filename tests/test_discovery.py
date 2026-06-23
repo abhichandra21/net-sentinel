@@ -6,6 +6,7 @@ PUBLISHED_KEYS = {
     "router_health_score", "router_packet_loss", "router_jitter_internal",
     "dns_latency", "dns_success_rate", "http_latency", "http_success_rate",
     "jitter", "download_speed", "upload_speed", "idle_latency", "last_outage",
+    "isp_gateway_latency",
 }
 
 
