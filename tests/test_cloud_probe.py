@@ -29,6 +29,17 @@ def test_three_failures_flip_to_offline():
     assert changed is True
 
 
+def test_startup_streak_resets_when_observation_direction_changes():
+    state = {"status": None, "streak": 0, "latency": None}
+    for is_up in (False, True, False):
+        state, changed = cp.update_debounce(
+            state, is_up=is_up, latency=None, threshold=3,
+        )
+    assert state["status"] is None
+    assert state["streak"] == 1
+    assert changed is False
+
+
 def test_recovery_resets_streak():
     state = {"status": "online", "streak": 2, "latency": 15.0}
     state, changed = cp.update_debounce(

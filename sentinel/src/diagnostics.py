@@ -147,6 +147,7 @@ def run_traceroute(target="8.8.8.8", max_hops=10, wait=2, timeout=20):
 import re
 
 _HOP_IP = re.compile(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b")
+_HOP_LINE = re.compile(r"^\s*\d+\s+(.*)$")
 
 
 def detect_isp_gateway(router_ip="192.168.1.1", target="8.8.8.8"):
@@ -157,10 +158,13 @@ def detect_isp_gateway(router_ip="192.168.1.1", target="8.8.8.8"):
     """
     output = run_traceroute(target)
     for line in output.splitlines():
-        m = _HOP_IP.search(line)
-        if not m:
+        hop = _HOP_LINE.match(line)
+        if not hop:
             continue
-        ip = m.group(1)
+        ip_match = _HOP_IP.search(hop.group(1))
+        if not ip_match:
+            continue
+        ip = ip_match.group(1)
         if ip == router_ip:
             continue
         return ip

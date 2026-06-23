@@ -1,7 +1,9 @@
 import os
+import pathlib
 import textwrap
 import pytest
 import monitor
+import yaml
 
 
 def _write(tmp_path, body):
@@ -39,3 +41,12 @@ def test_load_config_empty_env_var_raises(tmp_path, monkeypatch):
     monkeypatch.setenv("MQTT_PASSWORD", "")
     with pytest.raises(ValueError, match="MQTT_PASSWORD"):
         monitor.load_config()
+
+
+def test_example_config_exposes_load_quality_thresholds():
+    config_path = pathlib.Path(__file__).resolve().parent.parent / "config" / "config.example.yaml"
+    config = yaml.safe_load(config_path.read_text())
+    thresholds = config["monitoring"]["thresholds"]
+
+    assert thresholds["bufferbloat_ms"] == 50
+    assert thresholds["loaded_loss_pct"] == 5

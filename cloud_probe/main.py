@@ -61,19 +61,25 @@ def update_debounce(state, is_up, latency, threshold):
         return {
             "status": state["status"],
             "streak": 0,
+            "pending_status": None,
             "latency": stable_latency,
         }, False
-    streak = state["streak"] + 1
+    if desired == state.get("pending_status"):
+        streak = state["streak"] + 1
+    else:
+        streak = 1
     if streak >= threshold:
         stable_latency = latency if desired == "online" else None
         return {
             "status": desired,
             "streak": 0,
+            "pending_status": None,
             "latency": stable_latency,
         }, True
     return {
         "status": state["status"],
         "streak": streak,
+        "pending_status": desired,
         "latency": state.get("latency"),
     }, False
 
@@ -92,7 +98,12 @@ def main():
 
     logger.info(f"Starting Cloud Probe targeting {args.target}")
 
-    state = {"status": None, "streak": 0, "latency": None}
+    state = {
+        "status": None,
+        "streak": 0,
+        "pending_status": None,
+        "latency": None,
+    }
     threshold = 3
     while True:
         is_up, latency = check_home_connectivity(args.target)

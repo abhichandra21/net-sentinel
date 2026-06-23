@@ -31,7 +31,6 @@ Net Sentinel provides **clear fault codes** so you know exactly who to call:
 | `ROUTER_CRITICAL`   | Router health < 30/100       | 🔧 **Reboot router or replace**        |
 | `ROUTER_DEGRADED`   | Router health 30-60/100      | 🔧 **Check router load/performance**   |
 | `ROUTER_DOWN`       | Router not responding        | 🔧 **Check power and cables**          |
-| `ISP_EQUIPMENT`     | ISP gateway unreachable      | 📞 **Call ISP - their equipment down** |
 | `LASTMILE_RF_SUSPECT` | Inferred modem/RF path failure; no modem telemetry | 📞 Capture evidence and contact ISP |
 | `ISP_INGRESS_CONGEST` | ISP first hop is reachable but abnormally slow | 📞 Contact ISP with first-hop latency |
 | `ISP_CORE_ROUTING` | First hop works but DNS, HTTP, and anchor corroborate upstream failure | 📞 Contact ISP with trace evidence |
@@ -100,7 +99,13 @@ Net Sentinel provides **clear fault codes** so you know exactly who to call:
     ```
 
 2.  **Configure**:
-    Edit `config/config.yaml`:
+    Create the local configuration from the committed template, then edit the
+    non-secret network and MQTT settings:
+    ```bash
+    cp config/config.example.yaml config/config.yaml
+    ```
+
+    `config/config.yaml` should retain the environment token for the password:
     ```yaml
     monitoring:
       targets:
@@ -120,7 +125,12 @@ Net Sentinel provides **clear fault codes** so you know exactly who to call:
     mqtt:
       broker: "192.168.1.10"        # Your Home Assistant IP
       username: "mqtt_user"
-      password: "mqtt_password"
+      password: "${MQTT_PASSWORD}"
+    ```
+
+    Create an untracked `.env` file for Docker Compose:
+    ```dotenv
+    MQTT_PASSWORD=replace-with-your-broker-password
     ```
 
 3.  **Start the container**:
@@ -206,7 +216,7 @@ The included dashboard (`ha_dashboard.yaml`) provides:
 
 ### Local Sentinel
 *   **Check logs**: `docker logs -f net-sentinel`
-*   **MQTT not connecting**: Verify broker IP, username, password in `config/config.yaml`
+*   **MQTT not connecting**: Verify broker IP and username in `config/config.yaml`, and the password in the untracked `.env` file
 *   **No sensors in HA**: Restart HA after first run, check MQTT integration
 
 ### Cloud Probe

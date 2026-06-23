@@ -27,3 +27,13 @@ def test_load_quality_topics_exist_in_manual_ha_config():
         "load_fault_detail/state",
     ):
         assert topic in ha
+
+
+def test_retired_isp_equipment_code_is_not_operator_facing():
+    for name in (
+        "README.md",
+        "ha_comprehensive_setup.yaml",
+        "ha_dashboard.yaml",
+        "config/network_monitoring_dashboard.yaml",
+    ):
+        assert "ISP_EQUIPMENT" not in (ROOT / name).read_text()

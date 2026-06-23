@@ -25,7 +25,9 @@ mqtt:
       # - ROUTER_CRITICAL (router health < 30/100)
       # - ROUTER_DEGRADED (router health < 60/100)
       # - ROUTER_DOWN (router not responding)
-      # - ISP_EQUIPMENT (ISP gateway unreachable)
+      # - LASTMILE_RF_SUSPECT (inferred modem/RF path failure)
+      # - ISP_INGRESS_CONGEST (slow ISP first hop)
+      # - ISP_CORE_ROUTING (upstream ISP routing failure)
       # - ISP_DNS (ISP DNS servers down)
       # - ISP_ROUTING (ISP routing/connection issue)
       # - DEGRADED_DNS (partial DNS failure)
@@ -172,9 +174,6 @@ automation:
   - alias: "Alert: ISP Issue Detected"
     description: "Alert when ISP is at fault"
     trigger:
-      - platform: state
-        entity_id: sensor.internet_fault_blame
-        to: "ISP_EQUIPMENT"
       - platform: state
         entity_id: sensor.internet_fault_blame
         to: "ISP_DNS"

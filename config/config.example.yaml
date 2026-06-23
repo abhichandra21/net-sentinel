@@ -16,6 +16,8 @@ monitoring:
   thresholds:
     ingress_latency_ms: 120
     jitter_ms: 50
+    bufferbloat_ms: 50
+    loaded_loss_pct: 5
 
   speedtest:
     use_cloudflare: true

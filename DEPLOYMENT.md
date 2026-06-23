@@ -52,7 +52,12 @@ git clone <your-repo-url> internet-monitor
 cd internet-monitor
 ```
 
-Verify configuration in `config/config.yaml`:
+Create the local configuration and verify its non-secret settings:
+```bash
+cp config/config.example.yaml config/config.yaml
+```
+
+`config/config.yaml` must keep the password as an environment token:
 ```yaml
 monitoring:
   interval_seconds: 30
@@ -63,8 +68,13 @@ monitoring:
 mqtt:
   broker: "192.168.1.50"         # Home Assistant IP
   port: 1883
-  username: "abhishek"
-  password: "Al211hama!"
+  username: "mqtt_user"
+  password: "${MQTT_PASSWORD}"
+```
+
+Create an untracked `.env` file alongside `docker-compose.yml`:
+```dotenv
+MQTT_PASSWORD=replace-with-your-broker-password
 ```
 
 Start with Docker:
@@ -84,7 +94,10 @@ INFO - ✓ Healthy - DNS: 12.5ms, HTTP: 45.3ms, Jitter: 8.2ms
 **Verify MQTT is publishing:**
 ```bash
 # From any machine that can reach HA
-mosquitto_sub -h 192.168.1.50 -u abhishek -P 'Al211hama!' -t 'home/network/sentinel/#' -v
+set -a
+. ./.env
+set +a
+mosquitto_sub -h 192.168.1.50 -u mqtt_user -P "$MQTT_PASSWORD" -t 'home/network/sentinel/#' -v
 ```
 
 ## Component 2: Cloud Probe (VPS)
@@ -245,7 +258,10 @@ mqtt:
 telnet 192.168.1.50 1883
 
 # Test MQTT credentials
-mosquitto_pub -h 192.168.1.50 -u abhishek -P 'Al211hama!' -t 'test' -m 'hello'
+set -a
+. ./.env
+set +a
+mosquitto_pub -h 192.168.1.50 -u mqtt_user -P "$MQTT_PASSWORD" -t 'test' -m 'hello'
 ```
 
 **Cloud Probe can't reach webhook:**
