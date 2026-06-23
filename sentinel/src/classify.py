@@ -54,3 +54,15 @@ def requires_diagnosis(results, ingress_latency_ms=120, jitter_ms=50):
         code is not None,
         jitter is not None and jitter > jitter_ms,
     ))
+
+
+def classify_load(result, bloat_threshold_ms=50, loaded_loss_threshold_pct=5):
+    if result is None:
+        return (None, 0.0)
+    bloat = result.get("bloat_ms")
+    loss = result.get("loaded_loss_pct", 0.0)
+    bloat_bad = bloat is not None and bloat >= bloat_threshold_ms
+    loss_bad = loss >= loaded_loss_threshold_pct
+    if bloat_bad or loss_bad:
+        return ("DEGRADED_UNDER_LOAD", 0.8 if bloat_bad and loss_bad else 0.7)
+    return (None, 0.0)

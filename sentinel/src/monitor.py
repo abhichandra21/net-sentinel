@@ -9,9 +9,9 @@ from diagnostics import (
     check_ping, check_dns, check_http, check_multi_dns, check_multi_http,
     run_traceroute, check_interface_status, run_speedtest,
     run_cloudflare_speedtest, calculate_jitter, check_router_health,
-    detect_isp_gateway
+    detect_isp_gateway, measure_bufferbloat
 )
-from classify import classify_connectivity, requires_diagnosis
+from classify import classify_connectivity, requires_diagnosis, classify_load
 from notifier import Notifier
 
 # Configure Logging
@@ -123,35 +123,54 @@ def publish_path_metrics(notifier, results):
     if results.get('isp_gateway') is not None:
         notifier.update_state('isp_gateway_latency', results['isp_gateway'])
 
-def perform_speedtest(notifier, use_cloudflare=True):
-    """
-    Run speed test and report results.
-    Tries Cloudflare first (faster), falls back to speedtest-cli.
-    """
+def perform_speedtest(notifier, targets, speedtest_config=None, thresholds=None):
+    """Measure throughput, then independently measure and classify load quality."""
+    speedtest_config = speedtest_config or {}
+    thresholds = thresholds or {}
+    use_cloudflare = speedtest_config.get('use_cloudflare', True)
     logger.info("Running scheduled speedtest...")
 
-    if use_cloudflare:
-        cf_result = run_cloudflare_speedtest()
-        if cf_result:
-            logger.info(f"Cloudflare Speedtest - Down: {cf_result['download_mbps']} Mbps")
-            notifier.update_state("download_speed", cf_result['download_mbps'])
-            if cf_result['latency_ms'] is not None:
-                notifier.update_state("idle_latency", cf_result['latency_ms'])
-            return
+    cloudflare_result = run_cloudflare_speedtest() if use_cloudflare else None
+    if cloudflare_result:
+        notifier.update_state('download_speed', cloudflare_result['download_mbps'])
+        if cloudflare_result['latency_ms'] is not None:
+            notifier.update_state('idle_latency', cloudflare_result['latency_ms'])
+    else:
+        output = run_speedtest()
+        if output:
+            try:
+                lines = output.splitlines()
+                notifier.update_state('download_speed', lines[1].split(' ')[1])
+                notifier.update_state('upload_speed', lines[2].split(' ')[1])
+            except Exception as e:
+                logger.error(f"Failed to parse speedtest output: {e}")
 
-    # Fallback to speedtest-cli
-    output = run_speedtest()
-    if output:
-        try:
-            lines = output.splitlines()
-            download = lines[1].split(' ')[1]
-            upload = lines[2].split(' ')[1]
-            logger.info(f"Speedtest Result - Down: {download} Mbps, Up: {upload} Mbps")
-            notifier.update_state("download_speed", download)
-            notifier.update_state("upload_speed", upload)
-        except Exception as e:
-            logger.error(f"Failed to parse speedtest output: {e}")
-            logger.debug(f"Output was: {output}")
+    load_target = targets.get('isp_gateway') or '8.8.8.8'
+    load_result = measure_bufferbloat(load_target)
+    if load_result is None:
+        notifier.update_state('load_quality_status', 'UNAVAILABLE')
+        notifier.update_state('load_fault_detail', 'Load generator or idle RTT unavailable')
+        return
+
+    if load_result['bloat_ms'] is not None:
+        notifier.update_state('bufferbloat_ms', load_result['bloat_ms'])
+    notifier.update_state('loaded_loss_pct', load_result['loaded_loss_pct'])
+
+    code, confidence = classify_load(
+        load_result,
+        bloat_threshold_ms=thresholds.get('bufferbloat_ms', 50),
+        loaded_loss_threshold_pct=thresholds.get('loaded_loss_pct', 5),
+    )
+    status = code or 'HEALTHY'
+    detail = (
+        f"bloat={load_result['bloat_ms']}ms, "
+        f"loaded_loss={load_result['loaded_loss_pct']}%, "
+        f"confidence={confidence:.2f}"
+    )
+    notifier.update_state('load_quality_status', status)
+    notifier.update_state('load_fault_detail', detail)
+    if code:
+        notifier.log_event('DEGRADED', 'LoadQuality', detail, 'WARNING')
 
 def diagnose_issue(targets, results, notifier, ingress_latency_ms=120,
                    jitter_threshold_ms=50):
@@ -356,7 +375,7 @@ def main():
         else:
             logger.warning("Could not auto-detect ISP gateway; ISP-equipment layer disabled")
     http_endpoints = config['monitoring'].get('http_endpoints')
-    interval = config['monitoring']['interval_seconds']
+    interval = config['monitoring'].get('interval_seconds')
 
     # Read timeout and threshold configuration
     timeouts = config['monitoring'].get('timeouts', {})
@@ -369,6 +388,16 @@ def main():
     ingress_latency_ms = thresholds.get('ingress_latency_ms', 120)
     jitter_threshold_ms = thresholds.get('jitter_ms', 50)
 
+    speedtest_config = config['monitoring'].get('speedtest', {})
+    speedtest_interval_hours = speedtest_config.get('interval_hours', 6)
+    schedule.every(speedtest_interval_hours).hours.do(
+        perform_speedtest,
+        notifier=notifier,
+        targets=targets,
+        speedtest_config=speedtest_config,
+        thresholds=thresholds,
+    )
+
     logger.info("Network Sentinel Started.")
     logger.info(f"Configuration: DNS timeout={dns_timeout}s, HTTP timeout={http_timeout}s, Failure threshold={consecutive_failures_threshold}")
     if notifier.connected:
@@ -376,8 +405,6 @@ def main():
     else:
         logger.info("MQTT not available, running in offline mode")
 
-    # Schedule Speedtest every 6 hours
-    schedule.every(6).hours.do(perform_speedtest, notifier=notifier)
 
     consecutive_failures = 0
 

@@ -23,6 +23,10 @@ class Notifier:
         "jitter": {"name": "Connection Jitter", "unit_of_measurement": "ms", "icon": "mdi:sine-wave"},
         "download_speed": {"name": "Download Speed", "unit_of_measurement": "Mbps", "icon": "mdi:download"},
         "upload_speed": {"name": "Upload Speed", "unit_of_measurement": "Mbps", "icon": "mdi:upload"},
+        "bufferbloat_ms": {"name": "Bufferbloat", "unit_of_measurement": "ms", "icon": "mdi:water"},
+        "loaded_loss_pct": {"name": "Loaded Packet Loss", "unit_of_measurement": "%", "icon": "mdi:close-network"},
+        "load_quality_status": {"name": "Load Quality Status", "icon": "mdi:speedometer-slow"},
+        "load_fault_detail": {"name": "Load Quality Detail", "icon": "mdi:information"},
         "idle_latency": {"name": "Idle Latency", "unit_of_measurement": "ms", "icon": "mdi:speedometer"},
         "isp_gateway_latency": {
             "name": "ISP First-Hop Latency",
