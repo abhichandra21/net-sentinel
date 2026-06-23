@@ -99,11 +99,12 @@ def perform_health_check(targets, http_endpoints=None, dns_timeout=2.0, http_tim
         http_results = check_multi_http(timeout=http_timeout)
     results['http'] = http_results
 
-    # Track latency for jitter calculation
-    if http_results['avg_latency']:
-        latency_history.append(http_results['avg_latency'])
+    # Track ICMP RTT to the router for jitter. HTTP latency includes
+    # DNS+TCP+TLS+server time and is not a measure of path stability.
+    if results['router'] is not None:
+        latency_history.append(results['router'])
 
-    # Calculate current jitter
+    # Calculate current jitter (path RTT standard deviation, ms)
     results['jitter'] = calculate_jitter(list(latency_history))
 
     return results
