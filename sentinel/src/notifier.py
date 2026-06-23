@@ -8,10 +8,32 @@ import logging
 logger = logging.getLogger("Notifier")
 
 class Notifier:
+    DISCOVERY_SENSORS = {
+        "status": {"name": "Network Status", "icon": "mdi:web"},
+        "blame": {"name": "Fault Attribution", "icon": "mdi:gavel"},
+        "fault_detail": {"name": "Fault Detail", "icon": "mdi:information"},
+        "router_latency": {"name": "Router Latency", "unit_of_measurement": "ms", "icon": "mdi:router-wireless"},
+        "router_health_score": {"name": "Router Health Score", "unit_of_measurement": "/100", "icon": "mdi:heart-pulse"},
+        "router_packet_loss": {"name": "Router Packet Loss", "unit_of_measurement": "%", "icon": "mdi:close-network"},
+        "router_jitter_internal": {"name": "Router Jitter", "unit_of_measurement": "ms", "icon": "mdi:sine-wave"},
+        "dns_latency": {"name": "DNS Latency", "unit_of_measurement": "ms", "icon": "mdi:dns"},
+        "dns_success_rate": {"name": "DNS Success Rate", "icon": "mdi:dns"},
+        "http_latency": {"name": "HTTP Latency", "unit_of_measurement": "ms", "icon": "mdi:web-clock"},
+        "http_success_rate": {"name": "HTTP Success Rate", "icon": "mdi:web-check"},
+        "jitter": {"name": "Connection Jitter", "unit_of_measurement": "ms", "icon": "mdi:sine-wave"},
+        "download_speed": {"name": "Download Speed", "unit_of_measurement": "Mbps", "icon": "mdi:download"},
+        "upload_speed": {"name": "Upload Speed", "unit_of_measurement": "Mbps", "icon": "mdi:upload"},
+        "idle_latency": {"name": "Idle Latency", "unit_of_measurement": "ms", "icon": "mdi:speedometer"},
+        "last_outage": {"name": "Last Outage Reason", "icon": "mdi:alert-circle"},
+    }
+
+    RETIRED_DISCOVERY_KEYS = {"internet_latency", "speedtest_latency"}
+
     def __init__(self, config):
         self.config = config
         self.mqtt_client = None
         self.connected = False
+        self._warned_unknown_state_keys = set()
         self._setup_mqtt()
         self._setup_logging()
 
@@ -59,14 +81,7 @@ class Notifier:
         prefix = self.config['mqtt']['topic_prefix']
         
         # Define sensors to create
-        sensors = {
-            "status": {"name": "Network Status", "icon": "mdi:web"},
-            "router_latency": {"name": "Router Latency", "unit_of_measurement": "ms", "icon": "mdi:router-wireless"},
-            "internet_latency": {"name": "Internet Latency", "unit_of_measurement": "ms", "icon": "mdi:web-clock"},
-            "last_outage": {"name": "Last Outage Reason", "icon": "mdi:alert-circle"},
-            "download_speed": {"name": "Download Speed", "unit_of_measurement": "Mbps", "icon": "mdi:download"},
-            "upload_speed": {"name": "Upload Speed", "unit_of_measurement": "Mbps", "icon": "mdi:upload"}
-        }
+        sensors = self.DISCOVERY_SENSORS
 
         for key, data in sensors.items():
             config_payload = {
@@ -87,8 +102,16 @@ class Notifier:
             topic = f"homeassistant/sensor/netsentinel_{key}/config"
             self.mqtt_client.publish(topic, json.dumps(config_payload), retain=True)
 
+        for key in self.RETIRED_DISCOVERY_KEYS - set(sensors):
+            topic = f"homeassistant/sensor/netsentinel_{key}/config"
+            self.mqtt_client.publish(topic, "", retain=True)
+
     def update_state(self, key, value):
         """Publish state to MQTT"""
+        if key not in self.DISCOVERY_SENSORS and key not in getattr(self, '_warned_unknown_state_keys', set()):
+            logger.warning(f"Publishing state without discovery config: {key}")
+            if hasattr(self, '_warned_unknown_state_keys'):
+                self._warned_unknown_state_keys.add(key)
         if not self.connected: return
         prefix = self.config['mqtt']['topic_prefix']
         self.mqtt_client.publish(f"{prefix}/{key}/state", str(value), retain=True)
