@@ -73,7 +73,14 @@ def perform_health_check(targets, http_endpoints=None, dns_timeout=2.0, http_tim
     # Layer 1: Local network (your router) - basic ping
     results['router'] = check_ping(targets['router'], timeout=ping_timeout)
 
-    # Layer 2: ISP gateway (if configured)
+    # Layer 2: Cable modem management address (if configured)
+    modem_ip = targets.get('modem')
+    results['modem_configured'] = bool(modem_ip)
+    results['modem'] = (
+        check_ping(modem_ip, timeout=ping_timeout) if modem_ip else None
+    )
+
+    # Layer 3: ISP gateway (if configured)
     gateway_ip = targets.get('isp_gateway')
     results['isp_gateway_configured'] = bool(gateway_ip)
     results['isp_gateway'] = (
@@ -122,6 +129,17 @@ def publish_path_metrics(notifier, results):
     """Publish path observations independently of overall health state."""
     if results.get('isp_gateway') is not None:
         notifier.update_state('isp_gateway_latency', results['isp_gateway'])
+
+    if not results.get('modem_configured', False):
+        notifier.update_state('modem_status', 'NOT_CONFIGURED')
+        notifier.update_availability('modem_latency', False)
+    elif results.get('modem') is None:
+        notifier.update_state('modem_status', 'UNREACHABLE')
+        notifier.update_availability('modem_latency', False)
+    else:
+        notifier.update_state('modem_status', 'REACHABLE')
+        notifier.update_availability('modem_latency', True)
+        notifier.update_state('modem_latency', results['modem'])
 
 def perform_speedtest(notifier, targets, speedtest_config=None, thresholds=None):
     """Measure throughput, then independently measure and classify load quality."""
@@ -180,6 +198,16 @@ def diagnose_issue(targets, results, notifier, ingress_latency_ms=120,
     """
     logger.info("Issue detected. Starting fault isolation...")
 
+    # Basic reachability is authoritative. Detailed router-health probes also
+    # fail when the router is absent, but that must not mask ROUTER_DOWN.
+    if results.get('router') is None:
+        blame = "ROUTER_DOWN"
+        logger.error("⚠️  FAULT: ROUTER DOWN - Router is unreachable")
+        notifier.log_event("OUTAGE", "Router", "Router is not responding to ping", "CRITICAL")
+        notifier.update_state("blame", "ROUTER_DOWN")
+        notifier.update_state("fault_detail", "Router not responding to ping - check power and cables")
+        return blame
+
     # Layer 0: ROUTER HEALTH (detailed check)
     router_health = results.get('router_health', {})
     if router_health:
@@ -213,24 +241,23 @@ def diagnose_issue(targets, results, notifier, ingress_latency_ms=120,
             # If ISP also has issues, continue to ISP diagnosis
             logger.warning(f"Router degraded (score: {health_score}/100) but ISP also has issues - checking ISP...")
 
-    # Layer 1: YOUR ROUTER/MODEM - Basic reachability
-    if results['router'] is None:
-        blame = "ROUTER_DOWN"
-        logger.error("⚠️  FAULT: ROUTER DOWN - Router is unreachable")
-        notifier.log_event("OUTAGE", "Router", "Router is not responding to ping", "CRITICAL")
-        notifier.update_state("blame", "ROUTER_DOWN")
-        notifier.update_state("fault_detail", "Router not responding to ping - check power and cables")
-        return blame
-
     code, confidence = classify_connectivity(results, ingress_latency_ms)
     if code:
         degraded_codes = {"ISP_INGRESS_CONGEST", "DEGRADED_INTERNET"}
         severity = "WARNING" if code in degraded_codes else "CRITICAL"
         event_type = "DEGRADED" if severity == "WARNING" else "OUTAGE"
-        detail = f"{code} (confidence {confidence:.2f})"
+        details = {
+            "MODEM_DOWN": "Cable modem is unreachable while the router is up; check modem power and coax",
+            "LASTMILE_RF_SUSPECT": "ISP first hop is unreachable; last-mile or RF failure suspected",
+            "ISP_INGRESS_CONGEST": "ISP first-hop latency is above the configured threshold",
+            "ISP_CORE_ROUTING": "ISP first hop responds but public connectivity is unavailable",
+            "DEGRADED_INTERNET": "Public checks failed while the controlled anchor remained reachable",
+        }
+        detail = f"{details.get(code, code)} (confidence {confidence:.2f})"
         trace = run_traceroute("8.8.8.8", timeout=15)
+        target = "Modem" if code == "MODEM_DOWN" else "ISP"
         notifier.log_event(
-            event_type, "ISP", f"{detail}. Trace: {trace[-200:]}", severity,
+            event_type, target, f"{detail}. Trace: {trace[-200:]}", severity,
         )
         notifier.update_state("blame", code)
         notifier.update_state("fault_detail", detail)
@@ -361,6 +388,8 @@ def main():
             def __init__(self): pass
             def update_state(self, key, value): 
                 logger.info(f"Would update {key} to {value}")
+            def update_availability(self, key, available):
+                logger.info(f"Would update {key} availability to {available}")
             def log_event(self, *args): pass
             @property
             def connected(self): return False

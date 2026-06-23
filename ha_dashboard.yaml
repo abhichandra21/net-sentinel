@@ -90,6 +90,8 @@ cards:
             {% set blame = states('sensor.internet_fault_blame') %}
             {% if 'ROUTER' in blame %}
             🔧 **Action:** Check router - reboot or contact support
+            {% elif blame == 'MODEM_DOWN' %}
+            🔧 **Action:** Check modem power and coax. If both are secure, contact your ISP with the failure time.
             {% elif 'LASTMILE' in blame %}
             📞 **Action:** Suspected modem/RF path failure — capture evidence and contact your ISP
             {% elif 'ISP' in blame %}
@@ -99,6 +101,13 @@ cards:
             {% else %}
             ⚡ **Action:** Issue is transient or resolving
             {% endif %}
+        - type: entities
+          title: Modem Observation
+          entities:
+            - entity: sensor.internet_modem_status
+              name: Modem Status
+            - entity: sensor.internet_modem_latency
+              name: Modem Latency
   - type: custom:mushroom-title-card
     title: Performance
     subtitle: Speed & Throughput
@@ -279,4 +288,3 @@ cards:
         name: Router Latency
     hours_to_show: 24
     refresh_interval: 300
-

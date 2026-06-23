@@ -25,7 +25,8 @@ mqtt:
       # - ROUTER_CRITICAL (router health < 30/100)
       # - ROUTER_DEGRADED (router health < 60/100)
       # - ROUTER_DOWN (router not responding)
-      # - LASTMILE_RF_SUSPECT (inferred modem/RF path failure)
+      # - MODEM_DOWN (direct modem failure corroborated by gateway + public checks)
+      # - LASTMILE_RF_SUSPECT (first-hop/last-mile failure without proof modem is down)
       # - ISP_INGRESS_CONGEST (slow ISP first hop)
       # - ISP_CORE_ROUTING (upstream ISP routing failure)
       # - ISP_DNS (ISP DNS servers down)
@@ -69,6 +70,22 @@ mqtt:
     # ============================================================================
     # LATENCY METRICS
     # ============================================================================
+    - name: "Internet Modem Status"
+      state_topic: "home/network/sentinel/modem_status/state"
+      icon: mdi:modem
+      unique_id: internet_modem_status
+      # Values: REACHABLE, UNREACHABLE, NOT_CONFIGURED
+
+    - name: "Internet Modem Latency"
+      state_topic: "home/network/sentinel/modem_latency/state"
+      availability_topic: "home/network/sentinel/modem_latency/availability"
+      payload_available: "online"
+      payload_not_available: "offline"
+      unit_of_measurement: "ms"
+      icon: mdi:modem
+      device_class: duration
+      unique_id: internet_modem_latency
+
     - name: "Internet Router Latency"
       state_topic: "home/network/sentinel/router_latency/state"
       unit_of_measurement: "ms"
@@ -174,6 +191,9 @@ automation:
   - alias: "Alert: ISP Issue Detected"
     description: "Alert when ISP is at fault"
     trigger:
+      - platform: state
+        entity_id: sensor.internet_fault_blame
+        to: "MODEM_DOWN"
       - platform: state
         entity_id: sensor.internet_fault_blame
         to: "ISP_DNS"

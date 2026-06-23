@@ -172,6 +172,7 @@ cards:
             - `ROUTER_CRITICAL` → Router hardware failing (reboot/replace)
             - `ROUTER_DEGRADED` → Router overloaded (check device count)
             - `ROUTER_DOWN` → Router not responding (check power/cables)
+            - `MODEM_DOWN` → Direct modem failure corroborated by first-hop and public checks (check power/coax)
             - `LASTMILE_RF_SUSPECT` → Inferred modem/RF path failure (contact ISP with evidence)
             - `ISP_INGRESS_CONGEST` → ISP first hop is abnormally slow (contact ISP)
             - `ISP_CORE_ROUTING` → First hop works but corroborated upstream paths fail (contact ISP)
@@ -188,6 +189,12 @@ cards:
             - entity: sensor.internet_fault_detail
               name: Detailed Analysis
               icon: mdi:information-variant
+            - entity: sensor.internet_modem_status
+              name: Modem Status
+              icon: mdi:modem
+            - entity: sensor.internet_modem_latency
+              name: Modem Latency
+              icon: mdi:timer-outline
 
   # ═══════════════════════════════════════════════════════════════════════════
   # SPEED PERFORMANCE - Download speeds and throughput

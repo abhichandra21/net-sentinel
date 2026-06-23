@@ -16,7 +16,9 @@
         - "OUTAGE_ISP_ROUTING"
         - "OUTAGE_ROUTER_DOWN"
         - "OUTAGE_ROUTER_CRITICAL"
-        - "OUTAGE_ISP_EQUIPMENT"
+        - "OUTAGE_MODEM_DOWN"
+        - "OUTAGE_LASTMILE_RF_SUSPECT"
+        - "OUTAGE_ISP_CORE_ROUTING"
   action:
     - service: notify.notify
       data:
@@ -43,7 +45,9 @@
         - "OUTAGE_ISP_ROUTING"
         - "OUTAGE_ROUTER_DOWN"
         - "OUTAGE_ROUTER_CRITICAL"
-        - "OUTAGE_ISP_EQUIPMENT"
+        - "OUTAGE_MODEM_DOWN"
+        - "OUTAGE_LASTMILE_RF_SUSPECT"
+        - "OUTAGE_ISP_CORE_ROUTING"
       to: "HEALTHY"
   action:
     - service: notify.notify

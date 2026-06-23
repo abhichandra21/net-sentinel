@@ -3,6 +3,8 @@
 
 def outage_confidence(results):
     signals = [results.get("router") is None]
+    if results.get("modem_configured", False):
+        signals.append(results.get("modem") is None)
     if results.get("isp_gateway_configured", False):
         signals.append(results.get("isp_gateway") is None)
     signals.append(not results.get("dns", {}).get("all_succeeded", True))
@@ -29,7 +31,13 @@ def classify_connectivity(results, ingress_latency_ms=120):
         return (None, confidence)
 
     gateway = results.get("isp_gateway")
+    modem_down = (
+        results.get("modem_configured", False)
+        and results.get("modem") is None
+    )
 
+    if modem_down and gateway is None and internet_down and anchor_supports_outage:
+        return ("MODEM_DOWN", max(0.9, confidence))
     if gateway is None and internet_down and anchor_supports_outage:
         return ("LASTMILE_RF_SUSPECT", max(0.7, confidence))
     if gateway is not None and gateway > ingress_latency_ms:

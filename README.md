@@ -8,7 +8,7 @@ The system consists of two independent components that report to **Home Assistan
 
 1.  **Local Sentinel (Docker)**:
     *   Runs on your home network (Raspberry Pi, NAS, Server).
-    *   Monitors: Router Health → ISP Gateway → Public DNS → Website Reachability.
+    *   Monitors: Router Health → Cable Modem (optional) → ISP Gateway → Public DNS → Website Reachability.
     *   Checks: Ping latency, packet loss, jitter, DNS resolution, periodic Speedtests.
     *   Reporting: **MQTT** with Auto-Discovery.
     *   *Diagnoses if the issue is your Router, Modem, or ISP with detailed health scoring.*
@@ -31,7 +31,8 @@ Net Sentinel provides **clear fault codes** so you know exactly who to call:
 | `ROUTER_CRITICAL`   | Router health < 30/100       | 🔧 **Reboot router or replace**        |
 | `ROUTER_DEGRADED`   | Router health 30-60/100      | 🔧 **Check router load/performance**   |
 | `ROUTER_DOWN`       | Router not responding        | 🔧 **Check power and cables**          |
-| `LASTMILE_RF_SUSPECT` | Inferred modem/RF path failure; no modem telemetry | 📞 Capture evidence and contact ISP |
+| `MODEM_DOWN` | Router is up, while the configured modem, ISP first hop, DNS, and HTTP checks all fail | 🔧 Check modem power and coax; then contact ISP |
+| `LASTMILE_RF_SUSPECT` | ISP first hop and public checks fail, but direct modem evidence does not prove the modem is down | 📞 Capture evidence and contact ISP |
 | `ISP_INGRESS_CONGEST` | ISP first hop is reachable but abnormally slow | 📞 Contact ISP with first-hop latency |
 | `ISP_CORE_ROUTING` | First hop works but DNS, HTTP, and anchor corroborate upstream failure | 📞 Contact ISP with trace evidence |
 | `DEGRADED_UNDER_LOAD` | Latency or packet loss rises beyond configured load thresholds | 🔧 Review router QoS, then ISP capacity |
@@ -63,6 +64,8 @@ Net Sentinel provides **clear fault codes** so you know exactly who to call:
 
 ### Latency Metrics
 - **`sensor.internet_router_latency`**: Ping to local router
+- **`sensor.netsentinel_modem_status`**: `REACHABLE`, `UNREACHABLE`, or `NOT_CONFIGURED`
+- **`sensor.netsentinel_modem_latency`**: Direct ICMP RTT to the configured modem; unavailable when it does not answer
 - **`sensor.internet_dns_latency`**: DNS resolution time
 - **`sensor.internet_http_latency`**: HTTP request time
 - **`sensor.internet_jitter`**: Connection stability (low = good)
@@ -110,6 +113,7 @@ Net Sentinel provides **clear fault codes** so you know exactly who to call:
     monitoring:
       targets:
         router: "192.168.1.1"       # Your local router IP
+        modem: null                  # Set to e.g. "192.168.100.1" only if ICMP was verified
         isp_gateway: "100.64.0.1"   # ISP Gateway (find via 'traceroute 8.8.8.8')
         public_dns_1: "8.8.8.8"     # Primary DNS resolver to test
         public_dns_2: "1.1.1.1"     # Optional secondary DNS resolver
@@ -128,6 +132,12 @@ Net Sentinel provides **clear fault codes** so you know exactly who to call:
       password: "${MQTT_PASSWORD}"
     ```
 
+    A failed modem ping is always published as telemetry, but does not by
+    itself declare an outage. `MODEM_DOWN` requires the router to remain up
+    while the modem, ISP first hop, DNS, and HTTP checks corroborate the same
+    failure. Remove or null the `modem` target if the device stops answering
+    ICMP.
+
     Create an untracked `.env` file for Docker Compose:
     ```dotenv
     MQTT_PASSWORD=replace-with-your-broker-password
@@ -141,7 +151,7 @@ Net Sentinel provides **clear fault codes** so you know exactly who to call:
 ### Home Assistant Integration
 
 #### Option 1: Quick Setup (Copy/Paste)
-See `ha_complete_setup.yaml` for a ready-to-use configuration.
+See `ha_comprehensive_setup.yaml` for a ready-to-use configuration.
 
 #### Option 2: Manual Setup
 

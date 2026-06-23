@@ -51,6 +51,9 @@ def test_publish_path_metrics_publishes_reachable_gateway():
         def update_state(self, key, value):
             calls.append((key, value))
 
+        def update_availability(self, key, available):
+            calls.append((f"{key}_availability", available))
+
     monitor.publish_path_metrics(
         FakeNotifier(),
         {"isp_gateway_configured": True, "isp_gateway": 9.0},

@@ -28,3 +28,9 @@ def test_operator_docs_use_environment_password_and_migration_steps():
 def test_dotenv_is_ignored():
     ignored = (ROOT / ".gitignore").read_text().splitlines()
     assert ".env" in ignored
+
+
+def test_deployment_log_commands_name_the_real_compose_service():
+    deployment = (ROOT / "DEPLOYMENT.md").read_text()
+    assert "docker-compose logs -f net-sentinel" in deployment
+    assert "docker-compose logs -f sentinel" not in deployment

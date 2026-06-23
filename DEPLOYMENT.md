@@ -63,6 +63,7 @@ monitoring:
   interval_seconds: 30
   targets:
     router: "192.168.1.1"        # Your router
+    modem: null                   # Set to "192.168.100.1" after verifying ICMP
     isp_gateway: null
 
 mqtt:
@@ -82,7 +83,7 @@ Start with Docker:
 docker-compose up -d
 
 # Check logs
-docker-compose logs -f sentinel
+docker-compose logs -f net-sentinel
 ```
 
 **Expected output:**
@@ -99,6 +100,18 @@ set -a
 set +a
 mosquitto_sub -h 192.168.1.50 -u mqtt_user -P "$MQTT_PASSWORD" -t 'home/network/sentinel/#' -v
 ```
+
+When `monitoring.targets.modem` is configured, verify these retained topics:
+
+```text
+home/network/sentinel/modem_status/state
+home/network/sentinel/modem_latency/state
+home/network/sentinel/modem_latency/availability
+```
+
+`modem_status` reports every cycle. The latency entity is marked unavailable
+when the modem does not answer. A modem ping failure alone does not cause an
+outage; `MODEM_DOWN` requires corroborating ISP-gateway, DNS, and HTTP failures.
 
 ## Component 2: Cloud Probe (VPS)
 
@@ -197,34 +210,34 @@ Edit `configuration.yaml` or create `config/packages/internet_monitor.yaml`:
 mqtt:
   sensor:
     - name: "Internet Status"
-      state_topic: "home/network/sentinel/status"
+      state_topic: "home/network/sentinel/status/state"
       icon: mdi:network
 
     - name: "Internet Fault Blame"
-      state_topic: "home/network/sentinel/blame"
+      state_topic: "home/network/sentinel/blame/state"
       icon: mdi:alert-circle
 
     - name: "Internet Fault Detail"
-      state_topic: "home/network/sentinel/fault_detail"
+      state_topic: "home/network/sentinel/fault_detail/state"
 
     - name: "Router Latency"
-      state_topic: "home/network/sentinel/router_latency"
+      state_topic: "home/network/sentinel/router_latency/state"
       unit_of_measurement: "ms"
 
     - name: "DNS Latency"
-      state_topic: "home/network/sentinel/dns_latency"
+      state_topic: "home/network/sentinel/dns_latency/state"
       unit_of_measurement: "ms"
 
     - name: "HTTP Latency"
-      state_topic: "home/network/sentinel/http_latency"
+      state_topic: "home/network/sentinel/http_latency/state"
       unit_of_measurement: "ms"
 
     - name: "Jitter"
-      state_topic: "home/network/sentinel/jitter"
+      state_topic: "home/network/sentinel/jitter/state"
       unit_of_measurement: "ms"
 
     - name: "Download Speed"
-      state_topic: "home/network/sentinel/download_speed"
+      state_topic: "home/network/sentinel/download_speed/state"
       unit_of_measurement: "Mbps"
 ```
 
@@ -236,7 +249,7 @@ mqtt:
 
 ### Local Monitor (192.168.1.3)
 - [ ] Docker container running: `docker ps`
-- [ ] Logs show healthy checks: `docker-compose logs sentinel`
+- [ ] Logs show healthy checks: `docker-compose logs net-sentinel`
 - [ ] MQTT publishing: `mosquitto_sub -h 192.168.1.50 ...`
 
 ### Cloud Probe (VPS)
@@ -301,7 +314,7 @@ sudo systemctl restart cloud-probe
 ```bash
 # Local monitor
 ssh 192.168.1.3
-docker-compose logs -f sentinel
+docker-compose logs -f net-sentinel
 
 # Cloud probe
 ssh -i ~/.ssh/aws.pub ubuntu@ssh-day1.abhichandra.com
