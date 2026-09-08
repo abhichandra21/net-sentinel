@@ -1,0 +1,781 @@
+# =============================================================================
+# Net Sentinel - "signal desk"
+#
+# THIS FILE IS THE SOURCE, BUT HOME ASSISTANT DOES NOT READ IT.
+# The dashboard is storage mode, so HA reads .storage/lovelace.net_sentinel.
+# Editing this file changes nothing on its own. Deploy it:
+#
+#     export HA_TOKEN=...
+#     homeassistant/deploy_dashboard.py all     # theme + dashboard
+#
+# `deploy_dashboard.py get live.yaml` pulls the live config back, which is how
+# you check whether someone edited the dashboard in the HA UI behind this file.
+#
+# Design rules, so edits stay coherent:
+#
+#   * Colour is semantic. Cyan = in range. Amber = degraded. RED = OUTAGE ONLY.
+#     Slate = no data. Never colour something just to decorate it.
+#
+#   * Markdown cards are styled by ELEMENT selector via card_mod. HA's markdown
+#     sanitizer strips class= and style= attributes, so per-value colour is
+#     carried by wrapper elements instead:
+#         `value`   -> code   -> cyan   (nominal)
+#         *value*   -> em     -> amber  (degraded)
+#         **value** -> strong -> red    (fault)
+#         ~~value~~ -> del    -> slate  (no data / not measured)
+#     Pick the wrapper in Jinja. Do not add classes; they will not survive.
+#
+#   * Use `content: |` (literal), never `>-`. Folded scalars eat the newlines
+#     that markdown tables and headings need.
+#
+#   * Every table starts with a real header row that CSS then hides
+#     (thead {display:none}). Do not drop it: markdown requires the separator
+#     on line 2, so without a header row your first data row disappears.
+#
+#   * Every layout must survive a ~360px column (iPhone) and a 3-column Mac
+#     window. That is why the path is a vertical readout, not a row of tiles.
+# =============================================================================
+
+title: Net Sentinel
+icon: mdi:radar
+
+# --- shared card_mod styling ------------------------------------------------
+# Kept deliberately small. No font overrides, no uppercase, no letter-spacing.
+# Home Assistant's default typography is used as-is. All this does is:
+#   - give cards a flat plate look instead of rounded floating tiles
+#   - hide the markdown table header row (markdown needs it, we don't want it)
+#   - put a hairline rule between rows and right-align the value column
+#   - map four wrapper elements to four status colours
+#
+# Markdown content lives in ha-markdown's own shadow root, so it is styled
+# through `ha-markdown$:` with BARE selectors. `.:` styles the card frame.
+ns_styles:
+  plate: &plate
+    style:
+      .: |
+        ha-card {
+          background: var(--ns-plate) !important;
+          border: 1px solid var(--ns-rule) !important;
+          border-radius: 4px !important;
+          box-shadow: none !important;
+        }
+      ha-markdown$: |
+        h4 {
+          font-size: 13px !important;
+          font-weight: 500 !important;
+          color: var(--ns-ink-dim) !important;
+          margin: 0 0 10px 0 !important;
+          padding-bottom: 8px !important;
+          border-bottom: 1px solid var(--ns-rule) !important;
+        }
+        h1 {
+          font-size: 26px !important;
+          font-weight: 400 !important;
+          line-height: 1.2 !important;
+          margin: 4px 0 8px 0 !important;
+        }
+        h1 code, h1 em, h1 strong, h1 del {
+          font-family: inherit !important;
+          font-size: inherit !important;
+          font-weight: 400 !important;
+          font-style: normal !important;
+          text-decoration: none !important;
+          background: none !important;
+          padding: 0 !important;
+        }
+        p {
+          font-size: 14px !important;
+          line-height: 1.5 !important;
+          color: var(--ns-ink-dim) !important;
+          margin: 8px 0 !important;
+        }
+        table {
+          width: 100% !important;
+          border-collapse: collapse !important;
+          margin: 0 !important;
+        }
+        thead { display: none !important; }
+        tr { border: none !important; background: none !important; }
+        td {
+          border: none !important;
+          border-bottom: 1px solid var(--ns-rule) !important;
+          padding: 9px 0 !important;
+          font-size: 14px !important;
+          vertical-align: baseline !important;
+          background: none !important;
+        }
+        tbody tr:last-child td { border-bottom: none !important; }
+        td:first-child {
+          color: var(--ns-ink-dim) !important;
+          white-space: nowrap !important;
+          padding-right: 14px !important;
+        }
+        td:nth-child(2) {
+          text-align: right !important;
+          font-variant-numeric: tabular-nums !important;
+          white-space: nowrap !important;
+        }
+        td:nth-child(3) {
+          font-size: 12px !important;
+          color: var(--ns-idle) !important;
+          text-align: right !important;
+          white-space: nowrap !important;
+          padding-left: 12px !important;
+          width: 1%;
+        }
+        code, em, strong, del {
+          font-family: inherit !important;
+          font-size: inherit !important;
+          font-style: normal !important;
+          text-decoration: none !important;
+          background: none !important;
+          padding: 0 !important;
+          font-variant-numeric: tabular-nums !important;
+        }
+        code { color: var(--ns-nominal) !important; }
+        em { color: var(--ns-warn) !important; }
+        strong { color: var(--ns-fault) !important; font-weight: 500 !important; }
+        del { color: var(--ns-idle) !important; }
+        hr {
+          border: none !important;
+          border-top: 1px solid var(--ns-rule) !important;
+          margin: 16px 0 !important;
+        }
+
+  chart: &chart
+    style: |
+      ha-card {
+        background: var(--ns-plate) !important;
+        border: 1px solid var(--ns-rule) !important;
+        border-radius: 4px !important;
+        box-shadow: none !important;
+      }
+
+  panel: &panel
+    style: |
+      ha-card {
+        background: var(--ns-plate) !important;
+        border: 1px solid var(--ns-rule) !important;
+        border-radius: 4px !important;
+        box-shadow: none !important;
+      }
+
+views:
+
+  # ===========================================================================
+  # LIVE - answers "whose fault is it"
+  # ===========================================================================
+  - title: Live
+    path: live
+    icon: mdi:radar
+    theme: Net Sentinel
+    type: sections
+    max_columns: 3
+    dense_section_placement: true
+    sections:
+
+      # ---- VERDICT ---------------------------------------------------------
+      - type: grid
+        cards:
+          - type: markdown
+            card_mod: *plate
+            content: |
+              {% set s = states('sensor.network_sentinel_netsentinel_network_status') %}
+              {% set blame = states('sensor.network_sentinel_netsentinel_fault_attribution') %}
+              {% set detail = states('sensor.network_sentinel_netsentinel_fault_detail') %}
+              {% set since = relative_time(states.sensor.network_sentinel_netsentinel_network_status.last_changed) %}
+              {% set healthy = s == 'HEALTHY' %}
+              {% set soft = s.startswith('DEGRADED') or s in ['TRANSIENT', 'DIAGNOSING'] %}
+              {% set label = blame if blame not in ['NONE', 'unknown', 'unavailable', ''] else s %}
+              {% set remedy = {
+                'ROUTER_DOWN': 'Power-cycle the router. Nothing past it can be tested until it answers.',
+                'ROUTER_CRITICAL': 'Router is failing, not merely slow. Power-cycle it; if the score stays low, suspect hardware or heat.',
+                'ROUTER_DEGRADED': 'Router is up but struggling. Check heat, CPU load, recent firmware, or Wi-Fi interference.',
+                'FIBER_LINK_DOWN': 'The gateway itself reports the optical link down. Check the fiber at the ONT and the gateway power. This is the strongest signal the system has.',
+                'MODEM_DOWN': 'Gateway unreachable while the router is fine. Check gateway power and the fiber, then call AT&T.',
+                'LASTMILE_FIBER_SUSPECT': 'ISP first hop is dark. Last-mile or uplink failure. Open an AT&T ticket.',
+                'ISP_INGRESS_CONGEST': 'First hop is slow, not broken. Usually peak-hour congestion; it clears on its own.',
+                'ISP_CORE_ROUTING': 'First hop answers but nothing public does. ISP core routing. Call AT&T and quote the code.',
+                'ISP_ROUTING': 'DNS and HTTP are both dark. Upstream connectivity or routing. Call AT&T and quote the code.',
+                'ISP_DNS': 'Every resolver failed while the path stayed up. ISP DNS problem. Switching resolvers is the fast workaround.',
+                'DEGRADED_DNS': 'Some lookups fail, others are fine. Usually self-clears.',
+                'DEGRADED_INTERNET': 'Some endpoints are unreachable but our own anchor still answers, so the uplink is fine. Partial peering problem, not you.',
+                'DEGRADED_QUALITY': 'Jitter is over threshold. The path is unstable: interference or a saturated uplink.',
+                'TRANSIENT': 'Something failed briefly and recovered before it could be pinned down.'
+              } %}
+              #### Sentinel verdict
+
+              {% if healthy %}
+              # `All routes clear`
+
+              Every layer answered on the last sweep. Stable for {{ since }}.
+              {% elif soft %}
+              # *{{ label }}*
+
+              {{ detail if detail not in ['', 'unknown', 'unavailable'] else 'Degraded for ' ~ since ~ '.' }}
+
+              {{ remedy.get(blame, remedy.get(s, 'Watch it. If it persists, check the path readout for which layer moved.')) }}
+              {% else %}
+              # **{{ label }}**
+
+              {{ detail if detail not in ['', 'unknown', 'unavailable'] else 'Outage detected ' ~ since ~ '.' }}
+
+              {{ remedy.get(blame, 'Check the path readout for the first layer that stopped answering.') }}
+              {% endif %}
+
+      # ---- PATH ------------------------------------------------------------
+      - type: grid
+        cards:
+          - type: markdown
+            card_mod: *plate
+            content: |
+              {%- macro rtt(entity) -%}
+              {%- set v = states(entity) -%}
+              {%- if v in ['unknown', 'unavailable', 'none', ''] -%}~~no reply~~
+              {%- elif v | float(0) >= 250 -%}**{{ v }} ms**
+              {%- elif v | float(0) >= 120 -%}*{{ v }} ms*
+              {%- else -%}`{{ v }} ms`
+              {%- endif -%}
+              {%- endmacro -%}
+              {%- macro hits(entity) -%}
+              {%- set v = states(entity) -%}
+              {%- if v in ['unknown', 'unavailable', ''] or '/' not in v -%}~~--~~
+              {%- elif v.split('/')[0] == v.split('/')[1] -%}`{{ v }}`
+              {%- elif v.split('/')[0] == '0' -%}**{{ v }}**
+              {%- else -%}*{{ v }}*
+              {%- endif -%}
+              {%- endmacro -%}
+              {%- set fiber = states('sensor.network_sentinel_netsentinel_gateway_fiber_state') -%}
+              {%- set modem = states('sensor.network_sentinel_netsentinel_modem_status') -%}
+              #### Path out
+
+              | Hop | RTT | Note |
+              | --- | --- | --- |
+              | Router | {{ rtt('sensor.network_sentinel_netsentinel_router_latency') }} | 192.168.1.1 |
+              | Gateway | {{ rtt('sensor.network_sentinel_netsentinel_modem_latency') }} | {% if fiber == 'up' %}`fiber up`{% elif fiber == 'down' %}**fiber down**{% elif modem == 'REACHABLE' %}`icmp only`{% else %}~~no probe~~{% endif %} |
+              | ISP hop | {{ rtt('sensor.network_sentinel_netsentinel_isp_first_hop_latency') }} | first hop |
+              | DNS | {{ rtt('sensor.network_sentinel_netsentinel_dns_latency') }} | {{ hits('sensor.network_sentinel_netsentinel_dns_success_rate') }} |
+              | HTTP | {{ rtt('sensor.network_sentinel_netsentinel_http_latency') }} | {{ hits('sensor.network_sentinel_netsentinel_http_success_rate') }} |
+
+              Each row isolates one segment. The first row that stops answering is the fault boundary.
+
+      # ---- FIBER PLANT -----------------------------------------------------
+      - type: grid
+        cards:
+          - type: markdown
+            card_mod: *plate
+            content: |
+              {%- set probe = states('sensor.network_sentinel_netsentinel_gateway_probe_status') -%}
+              {%- set fiber = states('sensor.network_sentinel_netsentinel_gateway_fiber_state') -%}
+              {%- set wan = states('sensor.network_sentinel_netsentinel_gateway_wan_state') -%}
+              {%- set ip = states('sensor.network_sentinel_netsentinel_gateway_wan_ip') -%}
+              {%- set rx = states('sensor.network_sentinel_netsentinel_gateway_rx_power') -%}
+              {%- set tx = states('sensor.network_sentinel_netsentinel_gateway_tx_power') -%}
+              {%- set temp = states('sensor.network_sentinel_netsentinel_gateway_transceiver_temperature') -%}
+              {#- The retired modem_last_change_seconds key left an orphan
+                  registry entry, so the current timestamp sensor registered as
+                  ..._last_change_2. Prefer the suffixed one, fall back to the
+                  clean id, so this self-heals once the orphan is deleted. -#}
+              {%- set lc_new = states('sensor.network_sentinel_netsentinel_gateway_optical_last_change_2') -%}
+              {%- set lc_old = states('sensor.network_sentinel_netsentinel_gateway_optical_last_change') -%}
+              {%- set lc = lc_new if lc_new not in ['unknown', 'unavailable', ''] else lc_old -%}
+              {%- set lc_ts = (lc | float(0)) if lc | is_number else as_timestamp(lc, 0) -%}
+              {%- set lc_age = (as_timestamp(now()) - lc_ts) if lc_ts > 0 else 0 -%}
+              {%- macro link(v) -%}
+              {%- if v == 'up' -%}`up`
+              {%- elif v == 'down' -%}**down**
+              {%- else -%}~~unknown~~
+              {%- endif -%}
+              {%- endmacro -%}
+              {%- macro dbm(v) -%}
+              {%- if v | is_number and (v | float) > 0 -%}{{ (10 * (((v | float) / 1000) | log(10))) | round(1) }} dBm
+              {%- else -%}--
+              {%- endif -%}
+              {%- endmacro -%}
+              #### Fiber plant / BGW620
+
+              {% if probe in ['failed', 'disabled', 'unknown', 'unavailable'] -%}
+              | Field | Value | Note |
+              | --- | --- | --- |
+              | Probe | {% if probe == 'disabled' %}~~disabled~~{% else %}**{{ probe }}**{% endif %} | scrape |
+              | Readings | ~~withheld~~ | stale hidden |
+
+              The gateway scrape is not answering, so optical readings are hidden rather than shown stale. ICMP reachability still applies in the path readout.
+              {%- else -%}
+              | Field | Value | Note |
+              | --- | --- | --- |
+              | Fiber | {{ link(fiber) }} | optical WAN |
+              | WAN | {{ link(wan) }} | broadband |
+              | WAN IP | {% if ip not in ['UNAVAILABLE', 'unknown', 'unavailable'] %}`{{ ip }}`{% else %}~~--~~{% endif %} | public |
+              | Rx power | {% if rx | is_number %}`{{ rx }} uW`{% else %}~~--~~{% endif %} | {{ dbm(rx) }} |
+              | Tx power | {% if tx | is_number %}`{{ tx }} uW`{% else %}~~--~~{% endif %} | {{ dbm(tx) }} |
+              | Optics temp | {% if temp | is_number %}{% if temp | float(0) >= 70 %}**{{ temp }} C**{% elif temp | float(0) >= 60 %}*{{ temp }} C*{% else %}`{{ temp }} C`{% endif %}{% else %}~~--~~{% endif %} | transceiver |
+              | Link change | {% if lc_age > 0 %}{% if lc_age >= 172800 %}`{{ (lc_age / 86400) | round(1) }} d`{% else %}`{{ (lc_age / 3600) | round(1) }} h`{% endif %}{% else %}~~--~~{% endif %} | since flap |
+              | Probe | {% if probe == 'ok' %}`ok`{% else %}*{{ probe }}*{% endif %} | scrape |
+              {%- endif %}
+
+      # ---- ROUTER / LOAD / THROUGHPUT --------------------------------------
+      - type: grid
+        cards:
+          - type: markdown
+            card_mod: *plate
+            content: |
+              {%- set score = states('sensor.network_sentinel_netsentinel_router_health_score') -%}
+              {%- set loss = states('sensor.network_sentinel_netsentinel_router_packet_loss') -%}
+              {%- set rj = states('sensor.network_sentinel_netsentinel_router_jitter') -%}
+              {%- set j = states('sensor.network_sentinel_netsentinel_connection_jitter') -%}
+              #### Your router
+
+              | Field | Value | Note |
+              | --- | --- | --- |
+              | Health | {% if score | is_number %}{% if score | float(100) < 30 %}**{{ score }} / 100**{% elif score | float(100) < 60 %}*{{ score }} / 100*{% else %}`{{ score }} / 100`{% endif %}{% else %}~~--~~{% endif %} | 5-ping score |
+              | Packet loss | {% if loss | is_number %}{% if loss | float(0) > 5 %}**{{ loss }} %**{% elif loss | float(0) > 0 %}*{{ loss }} %*{% else %}`{{ loss }} %`{% endif %}{% else %}~~--~~{% endif %} | to gateway |
+              | Local jitter | {% if rj | is_number %}{% if rj | float(0) > 50 %}**{{ rj }} ms**{% elif rj | float(0) > 10 %}*{{ rj }} ms*{% else %}`{{ rj }} ms`{% endif %}{% else %}~~--~~{% endif %} | 5-ping spread |
+              | Path jitter | {% if j | is_number %}{% if j | float(0) > 50 %}**{{ j }} ms**{% elif j | float(0) > 20 %}*{{ j }} ms*{% else %}`{{ j }} ms`{% endif %}{% else %}~~--~~{% endif %} | last 10 pings |
+
+          - type: markdown
+            card_mod: *plate
+            content: |
+              {#- Throughput comes from the Cloudflare Speed Test integration
+                  running on the Home Assistant box, NOT from the sentinel. The
+                  sentinel runs on a Raspberry Pi 4 with no AES acceleration, so
+                  its own figure measured software TLS (~213 Mbps) rather than
+                  the line (~690). Those sensors are retired; see the Runbook.
+                  cloudflare_speed_test is a HACS integration this repo does not
+                  own, so every row degrades to "no data" if it disappears. -#}
+              {%- set dl = states('sensor.cloudflare_speed_test_90th_percentile_down') -%}
+              {%- set ul = states('sensor.cloudflare_speed_test_90th_percentile_up') -%}
+              {%- set lat = states('sensor.cloudflare_speed_test_latency') -%}
+              {%- set age = relative_time(states.sensor.cloudflare_speed_test_90th_percentile_down.last_changed) if states.sensor.cloudflare_speed_test_90th_percentile_down is not none else '' -%}
+              #### Throughput
+
+              | Field | Value | Note |
+              | --- | --- | --- |
+              | Download | {% if dl | is_number %}`{{ dl | float | round(0) | int }} Mbps`{% else %}~~no data~~{% endif %} | {% if dl | is_number %}{{ age }} ago{% else %}needs cloudflare integration{% endif %} |
+              | Upload | {% if ul | is_number %}`{{ ul | float | round(0) | int }} Mbps`{% else %}~~no data~~{% endif %} | 90th percentile |
+              | Latency | {% if lat | is_number %}{% if lat | float(0) > 100 %}*{{ lat }} ms*{% else %}`{{ lat }} ms`{% endif %}{% else %}~~no data~~{% endif %} | loaded RTT |
+
+              Measured from Home Assistant, not from the sentinel host.
+
+      # ---- PATH LATENCY TREND ---------------------------------------------
+      - type: grid
+        cards:
+          - type: custom:apexcharts-card
+            card_mod: *chart
+            graph_span: 24h
+            header:
+              show: true
+              title: Path latency / 24 h / log scale
+              show_states: true
+              colorize_states: true
+            apex_config:
+              chart:
+                height: 250
+                background: transparent
+                foreColor: "#8b9aa8"
+                toolbar:
+                  show: false
+                animations:
+                  enabled: false
+              yaxis:
+                logarithmic: true
+                min: 0.1
+                tickAmount: 4
+                decimalsInFloat: 1
+              grid:
+                borderColor: "#1e2630"
+                strokeDashArray: 2
+              legend:
+                show: false
+              tooltip:
+                theme: dark
+              stroke:
+                width: 1.6
+            all_series_config:
+              curve: smooth
+              stroke_width: 1.6
+              group_by:
+                func: avg
+                duration: 10min
+            series:
+              - entity: sensor.network_sentinel_netsentinel_router_latency
+                name: Router
+                color: "#4fd6e0"
+              - entity: sensor.network_sentinel_netsentinel_modem_latency
+                name: Gateway
+                color: "#6ee7a8"
+              - entity: sensor.network_sentinel_netsentinel_isp_first_hop_latency
+                name: ISP
+                color: "#8ab4f8"
+              - entity: sensor.network_sentinel_netsentinel_dns_latency
+                name: DNS
+                color: "#c58af9"
+              - entity: sensor.network_sentinel_netsentinel_http_latency
+                name: HTTP
+                color: "#f0a020"
+
+      # ---- STABILITY -------------------------------------------------------
+      - type: grid
+        cards:
+          - type: custom:apexcharts-card
+            card_mod: *chart
+            graph_span: 24h
+            header:
+              show: true
+              title: Jitter / 24 h
+              show_states: true
+              colorize_states: true
+            apex_config:
+              chart:
+                height: 116
+                background: transparent
+                foreColor: "#8b9aa8"
+                toolbar:
+                  show: false
+                animations:
+                  enabled: false
+                sparkline:
+                  enabled: true
+              tooltip:
+                theme: dark
+            series:
+              - entity: sensor.network_sentinel_netsentinel_connection_jitter
+                name: Jitter
+                color: "#f0a020"
+                type: area
+                curve: smooth
+                stroke_width: 1.6
+                opacity: 0.12
+                group_by:
+                  func: avg
+                  duration: 15min
+
+          - type: custom:apexcharts-card
+            card_mod: *chart
+            graph_span: 24h
+            header:
+              show: true
+              title: Router health / 24 h
+              show_states: true
+              colorize_states: true
+            apex_config:
+              chart:
+                height: 116
+                background: transparent
+                foreColor: "#8b9aa8"
+                toolbar:
+                  show: false
+                animations:
+                  enabled: false
+                sparkline:
+                  enabled: true
+              yaxis:
+                min: 0
+                max: 100
+              tooltip:
+                theme: dark
+            series:
+              - entity: sensor.network_sentinel_netsentinel_router_health_score
+                name: Health
+                color: "#4fd6e0"
+                type: area
+                curve: smooth
+                stroke_width: 1.6
+                opacity: 0.12
+                group_by:
+                  func: min
+                  duration: 15min
+
+          - type: custom:apexcharts-card
+            card_mod: *chart
+            graph_span: 7d
+            header:
+              show: true
+              title: Download / 7 d / cloudflare
+              show_states: true
+              colorize_states: true
+            apex_config:
+              chart:
+                height: 116
+                background: transparent
+                foreColor: "#8b9aa8"
+                toolbar:
+                  show: false
+                animations:
+                  enabled: false
+                sparkline:
+                  enabled: true
+              tooltip:
+                theme: dark
+            series:
+              - entity: sensor.cloudflare_speed_test_90th_percentile_down
+                name: Down
+                color: "#6ee7a8"
+                type: area
+                curve: stepline
+                stroke_width: 1.6
+                opacity: 0.12
+                group_by:
+                  func: avg
+                  duration: 6h
+
+      # ---- HISTORY ---------------------------------------------------------
+      - type: grid
+        cards:
+          - type: history-graph
+            card_mod: *panel
+            title: Status and blame history
+            hours_to_show: 24
+            refresh_interval: 60
+            entities:
+              - entity: sensor.network_sentinel_netsentinel_network_status
+                name: Status
+              - entity: sensor.network_sentinel_netsentinel_fault_attribution
+                name: Blame
+
+  # ===========================================================================
+  # DIAGNOSTICS - every raw value, grouped
+  # ===========================================================================
+  - title: Diagnostics
+    path: diagnostics
+    icon: mdi:format-list-bulleted
+    theme: Net Sentinel
+    type: sections
+    max_columns: 3
+    sections:
+
+      - type: grid
+        column_span: 1
+        cards:
+          - type: entities
+            card_mod: *panel
+            title: Verdict
+            state_color: true
+            show_header_toggle: false
+            entities:
+              - entity: sensor.network_sentinel_netsentinel_network_status
+                name: Status
+              - entity: sensor.network_sentinel_netsentinel_fault_attribution
+                name: Fault code
+              - entity: sensor.network_sentinel_netsentinel_fault_detail
+                name: Detail
+              - entity: sensor.network_sentinel_netsentinel_last_outage_reason
+                name: Last outage
+
+      - type: grid
+        column_span: 1
+        cards:
+          - type: entities
+            card_mod: *panel
+            title: Path latency
+            state_color: true
+            show_header_toggle: false
+            entities:
+              - entity: sensor.network_sentinel_netsentinel_router_latency
+                name: Router
+              - entity: sensor.network_sentinel_netsentinel_modem_latency
+                name: Gateway
+              - entity: sensor.network_sentinel_netsentinel_isp_first_hop_latency
+                name: ISP first hop
+              - entity: sensor.network_sentinel_netsentinel_dns_latency
+                name: DNS
+              - entity: sensor.network_sentinel_netsentinel_http_latency
+                name: HTTP
+              - entity: sensor.network_sentinel_netsentinel_modem_status
+                name: Gateway ICMP
+
+      - type: grid
+        column_span: 1
+        cards:
+          - type: entities
+            card_mod: *panel
+            title: Fiber plant
+            state_color: true
+            show_header_toggle: false
+            entities:
+              - entity: sensor.network_sentinel_netsentinel_gateway_fiber_state
+                name: Fiber state
+              - entity: sensor.network_sentinel_netsentinel_gateway_wan_state
+                name: WAN state
+              - entity: sensor.network_sentinel_netsentinel_gateway_wan_ip
+                name: WAN IP
+              - entity: sensor.network_sentinel_netsentinel_gateway_rx_power
+                name: Rx power
+              - entity: sensor.network_sentinel_netsentinel_gateway_tx_power
+                name: Tx power
+              - entity: sensor.network_sentinel_netsentinel_gateway_transceiver_temperature
+                name: Optics temp
+              - entity: sensor.network_sentinel_netsentinel_gateway_optical_last_change_2
+                name: Last optical change
+              - entity: sensor.network_sentinel_netsentinel_gateway_probe_status
+                name: Probe status
+
+      - type: grid
+        column_span: 1
+        cards:
+          - type: entities
+            card_mod: *panel
+            title: Router internals
+            state_color: true
+            show_header_toggle: false
+            entities:
+              - entity: sensor.network_sentinel_netsentinel_router_health_score
+                name: Health score
+              - entity: sensor.network_sentinel_netsentinel_router_packet_loss
+                name: Packet loss
+              - entity: sensor.network_sentinel_netsentinel_router_jitter
+                name: Local jitter
+
+      - type: grid
+        column_span: 1
+        cards:
+          - type: entities
+            card_mod: *panel
+            title: Reliability
+            state_color: true
+            show_header_toggle: false
+            entities:
+              - entity: sensor.network_sentinel_netsentinel_dns_success_rate
+                name: DNS success
+              - entity: sensor.network_sentinel_netsentinel_http_success_rate
+                name: HTTP success
+              - entity: sensor.network_sentinel_netsentinel_connection_jitter
+                name: Connection jitter
+
+      - type: grid
+        column_span: 1
+        cards:
+          - type: entities
+            card_mod: *panel
+            title: Throughput (Home Assistant, not the sentinel)
+            state_color: true
+            show_header_toggle: false
+            entities:
+              - entity: sensor.cloudflare_speed_test_90th_percentile_down
+                name: Download p90
+              - entity: sensor.cloudflare_speed_test_90th_percentile_up
+                name: Upload p90
+              - entity: sensor.cloudflare_speed_test_25mb_down
+                name: Download 25MB
+              - entity: sensor.cloudflare_speed_test_latency
+                name: Latency
+              - entity: sensor.cloudflare_speed_test_jitter
+                name: Jitter
+              - entity: sensor.cloudflare_speed_test_isp
+                name: ISP
+
+  # ===========================================================================
+  # RUNBOOK - what each code means and what to do. Replaces the old hover
+  # tooltips, which never worked on the phone anyway.
+  # ===========================================================================
+  - title: Runbook
+    path: runbook
+    icon: mdi:book-open-variant
+    theme: Net Sentinel
+    type: sections
+    max_columns: 2
+    sections:
+
+      - type: grid
+        column_span: 1
+        cards:
+          - type: markdown
+            card_mod: *plate
+            content: |
+              #### How attribution works
+
+              Each probe isolates one segment of the path, so the pattern of failures localises the fault. Router up but gateway unreachable means the last mile. Gateway reachable but nothing public resolving means ISP core. Everything public failing while our own VPS anchor still answers means the problem is not our uplink at all.
+
+              Codes are ordered by specificity and the first match wins, so a direct observation from the gateway always beats an inference drawn from probes.
+
+              ---
+
+              #### Your equipment
+
+              | Code | Meaning |
+              | --- | --- |
+              | ROUTER_DOWN | Router will not answer ping. Checked first, so a failing health probe cannot mask it. |
+              | ROUTER_CRITICAL | Health score under 30. Failing, not just slow. |
+              | ROUTER_DEGRADED | Score under 60 while public checks are fine. |
+
+              #### The fiber gateway
+
+              | Code | Meaning |
+              | --- | --- |
+              | FIBER_LINK_DOWN | The BGW620 reports optical WAN down. Confidence 0.95, the strongest signal there is. |
+              | MODEM_DOWN | Gateway unreachable while the router is up. |
+
+              #### The ISP
+
+              | Code | Meaning |
+              | --- | --- |
+              | LASTMILE_FIBER_SUSPECT | First hop dark, no proof the gateway is down. |
+              | ISP_INGRESS_CONGEST | First-hop latency over threshold. Slow, not broken. |
+              | ISP_CORE_ROUTING | First hop answers, public does not. |
+              | ISP_ROUTING | DNS and HTTP both fully failed. |
+              | ISP_DNS | Every resolver failed, path intact. |
+
+              #### Degradation
+
+              | Code | Meaning |
+              | --- | --- |
+              | DEGRADED_DNS | Some lookups failed, not all. |
+              | DEGRADED_INTERNET | Some endpoints unreachable while the anchor answers. |
+              | DEGRADED_QUALITY | Jitter over threshold. |
+              | TRANSIENT | Failed, then recovered before it could be pinned down. |
+
+      - type: grid
+        column_span: 1
+        cards:
+          - type: markdown
+            card_mod: *plate
+            content: |
+              #### Reading the numbers
+
+              | Metric | What it tells you |
+              | --- | --- |
+              | Router RTT | Ping to 192.168.1.1. High means the router or Wi-Fi is the bottleneck, before the internet is involved. |
+              | Gateway RTT | Ping to the BGW620, smoothed over 5 samples, so it lags reality by up to 3 ticks. Do not read it as instantaneous. |
+              | ISP hop | First hop past the gateway, auto-detected at startup. If detection failed, ISP attribution is disabled for that process. |
+              | DNS | Resolution time across 4 domains on the configured resolvers. |
+              | HTTP | End-to-end fetch of 4 public endpoints. The user-facing number. |
+              | Path jitter | Standard deviation of the last 10 router pings. ICMP only, never HTTP timings. Drives DEGRADED_QUALITY. |
+              | Local jitter | Spread across the 5 pings of one router-health probe. |
+              | Throughput | Comes from the Cloudflare Speed Test integration on the Home Assistant box, not from the sentinel. See below. |
+              | Rx / Tx power | Optical power at the transceiver in microwatts, with the dBm equivalent alongside. |
+
+              ---
+
+              #### Why throughput is not measured by the sentinel
+
+              The sentinel runs on a Raspberry Pi 4, which has no AES hardware
+              acceleration, so TLS is encrypted and decrypted in software. That
+              caps a single HTTPS stream at roughly 250 Mbps: measured
+              AES-128-GCM on the Pi is 246 Mbps against 10.6 Gbps on the Home
+              Assistant box, a 43x difference.
+
+              So the sentinel's old "download speed" reported about 213 Mbps on
+              a line that actually delivers 690 down and 904 up. It was
+              measuring the Pi's crypto ceiling, not the internet. Plaintext
+              LAN throughput to the Pi is 900 Mbps, so the network was never
+              the problem.
+
+              The same limit broke the load classifier: bufferbloat was measured
+              by generating load from the Pi, and a host that caps near 345 Mbps
+              cannot saturate a 700 Mbps uplink, so DEGRADED_UNDER_LOAD could
+              never fire honestly. Both probes were removed rather than left to
+              report numbers that look like faults.
+
+              Throughput now comes from the Cloudflare Speed Test integration
+              running on Home Assistant itself, every 8 hours.
+
+              ---
+
+              #### Colour
+
+              | Slot | Meaning |
+              | --- | --- |
+              | `cyan` | In range. |
+              | *amber* | Degraded but carrying traffic. |
+              | **red** | Outage. Used for nothing else. |
+              | ~~slate~~ | No data, or deliberately not measured. Not the same as zero. |

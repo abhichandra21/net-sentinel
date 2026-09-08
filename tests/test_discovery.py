@@ -5,10 +5,11 @@ PUBLISHED_KEYS = {
     "status", "blame", "fault_detail", "router_latency",
     "router_health_score", "router_packet_loss", "router_jitter_internal",
     "dns_latency", "dns_success_rate", "http_latency", "http_success_rate",
-    "jitter", "download_speed", "upload_speed", "idle_latency", "last_outage",
-    "isp_gateway_latency", "bufferbloat_ms", "loaded_loss_pct",
-    "load_quality_status", "load_fault_detail", "modem_status",
+    "jitter", "last_outage", "isp_gateway_latency", "modem_status",
     "modem_latency",
+    "modem_wan_state", "modem_fiber_state", "modem_wan_ip",
+    "modem_rx_power_uw", "modem_tx_power_uw", "modem_temp_c",
+    "modem_last_change", "modem_probe_status",
 }
 
 
@@ -51,6 +52,21 @@ def test_retired_discovery_topics_are_deleted():
         "",
         True,
     ) in published
+    assert (
+        "homeassistant/sensor/netsentinel_modem_last_change_seconds/config",
+        "",
+        True,
+    ) in published
+    # Throughput and load-quality sensors were retired with the Pi-side
+    # speedtest; HA must be told to delete them, not left showing stale values.
+    for key in (
+        "download_speed", "upload_speed", "idle_latency",
+        "bufferbloat_ms", "loaded_loss_pct",
+        "load_quality_status", "load_fault_detail",
+    ):
+        assert (
+            f"homeassistant/sensor/netsentinel_{key}/config", "", True,
+        ) in published, f"{key} discovery not deleted"
 
 
 def test_modem_latency_discovery_has_availability_topic():
@@ -75,6 +91,28 @@ def test_modem_latency_discovery_has_availability_topic():
     )
     assert payload["payload_available"] == "online"
     assert payload["payload_not_available"] == "offline"
+
+
+def test_gateway_last_change_discovery_is_a_timestamp():
+    import json
+    published = []
+
+    class Client:
+        def publish(self, topic, payload, retain=False):
+            published.append((topic, payload, retain))
+
+    notifier = Notifier.__new__(Notifier)
+    notifier.connected = True
+    notifier.config = {"mqtt": {"topic_prefix": "home/network/sentinel"}}
+    notifier.mqtt_client = Client()
+    notifier._publish_discovery()
+
+    topic = "homeassistant/sensor/netsentinel_modem_last_change/config"
+    payload = next(json.loads(body) for sent_topic, body, _ in published
+                   if sent_topic == topic)
+    assert payload["device_class"] == "timestamp"
+    assert "unit_of_measurement" not in payload
+    assert "state_class" not in payload
 
 
 def test_update_availability_publishes_retained_state():

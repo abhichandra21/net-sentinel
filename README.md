@@ -8,8 +8,8 @@ The system consists of two independent components that report to **Home Assistan
 
 1.  **Local Sentinel (Docker)**:
     *   Runs on your home network (Raspberry Pi, NAS, Server).
-    *   Monitors: Router Health → Cable Modem (optional) → ISP Gateway → Public DNS → Website Reachability.
-    *   Checks: Ping latency, packet loss, jitter, DNS resolution, periodic Speedtests.
+    *   Monitors: Router Health → BGW620 Fiber Gateway (optional) → ISP Gateway → Public DNS → Website Reachability.
+    *   Checks: Ping latency, packet loss, jitter, DNS resolution, HTTP reachability.
     *   Reporting: **MQTT** with Auto-Discovery.
     *   *Diagnoses if the issue is your Router, Modem, or ISP with detailed health scoring.*
 
@@ -31,11 +31,10 @@ Net Sentinel provides **clear fault codes** so you know exactly who to call:
 | `ROUTER_CRITICAL`   | Router health < 30/100       | 🔧 **Reboot router or replace**        |
 | `ROUTER_DEGRADED`   | Router health 30-60/100      | 🔧 **Check router load/performance**   |
 | `ROUTER_DOWN`       | Router not responding        | 🔧 **Check power and cables**          |
-| `MODEM_DOWN` | Router is up, while the configured modem, ISP first hop, DNS, and HTTP checks all fail | 🔧 Check modem power and coax; then contact ISP |
-| `LASTMILE_RF_SUSPECT` | ISP first hop and public checks fail, but direct modem evidence does not prove the modem is down | 📞 Capture evidence and contact ISP |
+| `MODEM_DOWN` | Router is up, while the configured modem, ISP first hop, DNS, and HTTP checks all fail | 🔧 Check gateway power and fiber cable; then contact ISP |
+| `LASTMILE_FIBER_SUSPECT` | ISP first hop and public checks fail, but direct gateway evidence does not prove the gateway is down | 📞 Capture evidence and contact ISP |
 | `ISP_INGRESS_CONGEST` | ISP first hop is reachable but abnormally slow | 📞 Contact ISP with first-hop latency |
 | `ISP_CORE_ROUTING` | First hop works but DNS, HTTP, and anchor corroborate upstream failure | 📞 Contact ISP with trace evidence |
-| `DEGRADED_UNDER_LOAD` | Latency or packet loss rises beyond configured load thresholds | 🔧 Review router QoS, then ISP capacity |
 | `ISP_DNS`           | ISP DNS servers failing      | 📞 **Call ISP - DNS issue**            |
 | `ISP_ROUTING`       | ISP routing problem          | 📞 **Call ISP - routing issue**        |
 | `DEGRADED_DNS`      | Partial DNS failures         | ⏳ Monitor - may auto-resolve          |
@@ -74,13 +73,21 @@ Net Sentinel provides **clear fault codes** so you know exactly who to call:
 - **`sensor.internet_dns_success_rate`**: Format "4/4" (successful/total)
 - **`sensor.internet_http_success_rate`**: Format "4/4" (successful/total)
 
-### Speed Test & Load Quality
-- **`sensor.internet_download_speed`**: Download bandwidth in Mbit/s
-- **`sensor.internet_idle_latency`**: Idle ICMP RTT measured alongside the speed test
-- **`sensor.internet_load_quality_status`**: `HEALTHY`, `DEGRADED_UNDER_LOAD`, or `UNAVAILABLE`
-- **`sensor.internet_bufferbloat`**: Added RTT in milliseconds while the download load is active
-- **`sensor.internet_loaded_loss`**: ICMP packet-loss percentage while the download load is active
-- **`sensor.internet_load_quality_detail`**: Threshold inputs and confidence for the latest load test
+### Throughput
+
+The sentinel does not measure throughput. It runs on a Raspberry Pi 4, which
+has no AES hardware acceleration, so a single TLS stream is capped near
+250 Mbps by software crypto: its old speedtest reported ~213 Mbps on a line
+that delivers 690 down and 904 up. It was measuring the Pi, not the internet.
+
+Throughput comes from the Cloudflare Speed Test integration running on Home
+Assistant itself, and the dashboard reads
+`sensor.cloudflare_speed_test_90th_percentile_down` / `_up`.
+
+The load classifier was dropped for the same reason: bufferbloat was measured
+by generating load from the Pi, and a host that caps near 345 Mbps cannot
+saturate a 700 Mbps uplink, so `DEGRADED_UNDER_LOAD` could never fire
+honestly.
 
 ### Cloud Probe
 - **`input_boolean.cloud_probe_status`**: Is HA reachable from internet?
@@ -113,7 +120,7 @@ Net Sentinel provides **clear fault codes** so you know exactly who to call:
     monitoring:
       targets:
         router: "192.168.1.1"       # Your local router IP
-        modem: null                  # Set to e.g. "192.168.100.1" only if ICMP was verified
+        modem: null                  # Set to your BGW620 LAN address: "192.168.10.254"
         isp_gateway: "100.64.0.1"   # ISP Gateway (find via 'traceroute 8.8.8.8')
         public_dns_1: "8.8.8.8"     # Primary DNS resolver to test
         public_dns_2: "1.1.1.1"     # Optional secondary DNS resolver
@@ -159,7 +166,7 @@ See `ha_comprehensive_setup.yaml` for a ready-to-use configuration.
    Create or edit `mqtt.yaml` in your HA config directory (see `ha_comprehensive_setup.yaml` for full config).
 
 2. **Add Dashboard**
-   Copy the contents of `ha_dashboard.yaml` to a new Lovelace dashboard.
+   Run `homeassistant/deploy_dashboard.py all`. See "Dashboard" below.
 
 3. **Restart Home Assistant**
    ```bash
@@ -207,18 +214,46 @@ The Cloud Probe monitors your home from **outside**, detecting issues with publi
 
 ---
 
-## 📊 Dashboard Overview
+## 📊 Dashboard
 
-The included dashboard (`ha_dashboard.yaml`) provides:
+The dashboard lives here, under `homeassistant/`:
 
-1. **Critical Status** - Immediate health indicator
-2. **Router Health** - Gauge showing 0-100 health score with conditional packet loss/jitter details
-3. **Fault Attribution** - Shows WHO TO BLAME with recommended actions
-4. **Performance** - Download speed and ping metrics
-5. **Connection Quality** - DNS, HTTP latency, and jitter
-6. **Reliability** - Success rates for DNS/HTTP requests + cloud probe status
-7. **Advanced Diagnostics** - Detailed view of all metrics
-8. **Historical Trends** - 24-hour graphs
+```
+homeassistant/
+  dashboards/net_sentinel.yaml   the dashboard (source of truth)
+  themes/net-sentinel.yaml       the colours it styles itself with
+  deploy_dashboard.py            pushes both to Home Assistant
+```
+
+Deploy it:
+
+```bash
+export HA_TOKEN=...                        # long-lived access token
+homeassistant/deploy_dashboard.py all      # theme + dashboard
+homeassistant/deploy_dashboard.py get live.yaml   # pull the live config back
+```
+
+**Editing the YAML alone changes nothing.** `/net-sentinel` is a *storage-mode*
+dashboard, so Home Assistant reads `.storage/lovelace.net_sentinel` and never
+reads a YAML file. The deploy script pushes the config over the
+`lovelace/config/save` websocket command, which takes effect immediately and
+needs no restart. The theme is different: it is a real file HA does read, so it
+is scp'd into `<config>/themes/` and the frontend is told to reload.
+
+Because HA owns the live copy, someone can edit the dashboard in the UI and
+diverge from this file. `deploy_dashboard.py get` is how you check.
+
+This repo previously carried two *other* dashboard YAMLs that nothing read and
+that drifted for months. They are gone, and a test keeps them from returning:
+there is one source now.
+
+Three views:
+
+1. **Live** - the verdict and remedy, the hop-by-hop path readout, BGW620 fiber
+   plant (optical power, link state, WAN IP), router health, quality under load,
+   throughput, and 24 h trends on a log axis
+2. **Diagnostics** - every published entity, grouped
+3. **Runbook** - what each fault code means and what to do about it
 
 ---
 

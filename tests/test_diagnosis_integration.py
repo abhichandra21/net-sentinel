@@ -31,8 +31,8 @@ def test_lastmile_classifier_preempts_legacy_gateway_label(monkeypatch):
         results,
         notifier,
     )
-    assert blame == "LASTMILE_RF_SUSPECT"
-    assert notifier.states["blame"] == "LASTMILE_RF_SUSPECT"
+    assert blame == "LASTMILE_FIBER_SUSPECT"
+    assert notifier.states["blame"] == "LASTMILE_FIBER_SUSPECT"
 
 
 def test_corroborated_modem_failure_preempts_lastmile(monkeypatch):
@@ -63,7 +63,7 @@ def test_corroborated_modem_failure_preempts_lastmile(monkeypatch):
 
     assert blame == "MODEM_DOWN"
     assert notifier.states["blame"] == "MODEM_DOWN"
-    assert "check modem power and coax" in notifier.states["fault_detail"].lower()
+    assert "check gateway power and fiber cable" in notifier.states["fault_detail"].lower()
 
 
 def test_unreachable_router_preempts_router_health_score():

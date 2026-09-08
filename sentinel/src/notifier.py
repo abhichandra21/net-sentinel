@@ -12,26 +12,20 @@ class Notifier:
         "status": {"name": "Network Status", "icon": "mdi:web"},
         "blame": {"name": "Fault Attribution", "icon": "mdi:gavel"},
         "fault_detail": {"name": "Fault Detail", "icon": "mdi:information"},
-        "router_latency": {"name": "Router Latency", "unit_of_measurement": "ms", "icon": "mdi:router-wireless"},
-        "router_health_score": {"name": "Router Health Score", "unit_of_measurement": "/100", "icon": "mdi:heart-pulse"},
-        "router_packet_loss": {"name": "Router Packet Loss", "unit_of_measurement": "%", "icon": "mdi:close-network"},
-        "router_jitter_internal": {"name": "Router Jitter", "unit_of_measurement": "ms", "icon": "mdi:sine-wave"},
-        "dns_latency": {"name": "DNS Latency", "unit_of_measurement": "ms", "icon": "mdi:dns"},
+        "router_latency": {"name": "Router Latency", "unit_of_measurement": "ms", "icon": "mdi:router-wireless", "state_class": "measurement"},
+        "router_health_score": {"name": "Router Health Score", "unit_of_measurement": "/100", "icon": "mdi:heart-pulse", "state_class": "measurement"},
+        "router_packet_loss": {"name": "Router Packet Loss", "unit_of_measurement": "%", "icon": "mdi:close-network", "state_class": "measurement"},
+        "router_jitter_internal": {"name": "Router Jitter", "unit_of_measurement": "ms", "icon": "mdi:sine-wave", "state_class": "measurement"},
+        "dns_latency": {"name": "DNS Latency", "unit_of_measurement": "ms", "icon": "mdi:dns", "state_class": "measurement"},
         "dns_success_rate": {"name": "DNS Success Rate", "icon": "mdi:dns"},
-        "http_latency": {"name": "HTTP Latency", "unit_of_measurement": "ms", "icon": "mdi:web-clock"},
+        "http_latency": {"name": "HTTP Latency", "unit_of_measurement": "ms", "icon": "mdi:web-clock", "state_class": "measurement"},
         "http_success_rate": {"name": "HTTP Success Rate", "icon": "mdi:web-check"},
-        "jitter": {"name": "Connection Jitter", "unit_of_measurement": "ms", "icon": "mdi:sine-wave"},
-        "download_speed": {"name": "Download Speed", "unit_of_measurement": "Mbps", "icon": "mdi:download"},
-        "upload_speed": {"name": "Upload Speed", "unit_of_measurement": "Mbps", "icon": "mdi:upload"},
-        "bufferbloat_ms": {"name": "Bufferbloat", "unit_of_measurement": "ms", "icon": "mdi:water"},
-        "loaded_loss_pct": {"name": "Loaded Packet Loss", "unit_of_measurement": "%", "icon": "mdi:close-network"},
-        "load_quality_status": {"name": "Load Quality Status", "icon": "mdi:speedometer-slow"},
-        "load_fault_detail": {"name": "Load Quality Detail", "icon": "mdi:information"},
-        "idle_latency": {"name": "Idle Latency", "unit_of_measurement": "ms", "icon": "mdi:speedometer"},
+        "jitter": {"name": "Connection Jitter", "unit_of_measurement": "ms", "icon": "mdi:sine-wave", "state_class": "measurement"},
         "isp_gateway_latency": {
             "name": "ISP First-Hop Latency",
             "unit_of_measurement": "ms",
             "icon": "mdi:transit-connection-variant",
+            "state_class": "measurement",
         },
         "modem_status": {
             "name": "Modem Status",
@@ -42,11 +36,78 @@ class Notifier:
             "unit_of_measurement": "ms",
             "icon": "mdi:modem",
             "availability": True,
+            "state_class": "measurement",
         },
         "last_outage": {"name": "Last Outage Reason", "icon": "mdi:alert-circle"},
+        "modem_wan_state": {
+            "name": "Gateway WAN State",
+            "icon": "mdi:wan",
+        },
+        "modem_fiber_state": {
+            "name": "Gateway Fiber State",
+            "icon": "mdi:fiber-node",
+        },
+        "modem_wan_ip": {
+            "name": "Gateway WAN IP",
+            "icon": "mdi:ip",
+        },
+        "modem_rx_power_uw": {
+            "name": "Gateway Rx Power",
+            "unit_of_measurement": "uW",
+            "icon": "mdi:signal",
+            "availability": True,
+            "state_class": "measurement",
+        },
+        "modem_tx_power_uw": {
+            "name": "Gateway Tx Power",
+            "unit_of_measurement": "uW",
+            "icon": "mdi:signal-variant",
+            "availability": True,
+            "state_class": "measurement",
+        },
+        "modem_temp_c": {
+            "name": "Gateway Transceiver Temperature",
+            "unit_of_measurement": "C",
+            "icon": "mdi:thermometer",
+            "availability": True,
+            "state_class": "measurement",
+        },
+        "modem_last_change": {
+            "name": "Gateway Optical Last Change",
+            "icon": "mdi:clock-outline",
+            "availability": True,
+            "device_class": "timestamp",
+        },
+        "modem_probe_status": {
+            "name": "Gateway Probe Status",
+            "icon": "mdi:cog-sync",
+        },
     }
 
-    RETIRED_DISCOVERY_KEYS = {"internet_latency", "speedtest_latency"}
+    # Retired sensors. An empty retained payload is published to each config
+    # topic so Home Assistant deletes the entity instead of showing the last
+    # retained value forever. Never just drop a DISCOVERY_SENSORS entry.
+    #
+    # The throughput and load-quality sensors were retired because the sentinel
+    # runs on a Raspberry Pi 4, which has no AES hardware acceleration: a single
+    # TLS stream tops out near 250 Mbps, so its "download speed" measured the
+    # Pi's crypto ceiling rather than the line (213 Mbps against a real 690).
+    # Worse, the bufferbloat probe generated load from that same host, so it
+    # could never saturate a ~700 Mbps uplink and DEGRADED_UNDER_LOAD could not
+    # fire honestly. Throughput now comes from the Cloudflare Speed Test
+    # integration running on the Home Assistant box.
+    RETIRED_DISCOVERY_KEYS = {
+        "internet_latency",
+        "speedtest_latency",
+        "modem_last_change_seconds",
+        "download_speed",
+        "upload_speed",
+        "idle_latency",
+        "bufferbloat_ms",
+        "loaded_loss_pct",
+        "load_quality_status",
+        "load_fault_detail",
+    }
 
     def __init__(self, config):
         self.config = config
@@ -117,6 +178,10 @@ class Notifier:
             }
             if "unit_of_measurement" in data:
                 config_payload["unit_of_measurement"] = data["unit_of_measurement"]
+            if "state_class" in data:
+                config_payload["state_class"] = data["state_class"]
+            if "device_class" in data:
+                config_payload["device_class"] = data["device_class"]
             if data.get("availability"):
                 config_payload["availability_topic"] = (
                     f"{prefix}/{key}/availability"

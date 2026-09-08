@@ -4,7 +4,7 @@ monitoring:
 
   targets:
     router: "192.168.1.1"
-    modem: null
+    modem: null  # Set to your BGW620 LAN address: "192.168.10.254"
     isp_gateway: null
     cloud_anchor: null
     public_dns_1: "8.8.8.8"
@@ -17,12 +17,6 @@ monitoring:
   thresholds:
     ingress_latency_ms: 120
     jitter_ms: 50
-    bufferbloat_ms: 50
-    loaded_loss_pct: 5
-
-  speedtest:
-    use_cloudflare: true
-    interval_hours: 6
 
 mqtt:
   broker: "192.168.1.50"

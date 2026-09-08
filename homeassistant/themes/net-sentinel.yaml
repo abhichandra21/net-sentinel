@@ -1,0 +1,76 @@
+# Net Sentinel theme.
+#
+# SOURCE OF TRUTH: net-sentinel repo, homeassistant/themes/net-sentinel.yaml.
+# Deployed with homeassistant/deploy_dashboard.py, which overwrites the copy in
+# <config>/themes/. Edit it there, not on the Home Assistant box, or your change
+# is lost on the next deploy.
+#
+# Colour here is semantic, not decorative. Read it as instrumentation:
+#   ns-nominal  cyan    a measured value that is in range
+#   ns-warn     amber   degraded but carrying traffic
+#   ns-fault    red     an outage. Used NOWHERE else, so red always means red.
+#   ns-idle     slate   no data / not measured. Distinct from "zero".
+#
+# The old dashboard painted a red gauge arc at 100/100 health, which teaches
+# you to ignore red. Everything below exists to keep that from happening.
+
+Net Sentinel:
+  # ---- Ground and cards ---------------------------------------------------
+  primary-background-color: "#0a0c0f"
+  secondary-background-color: "#101419"
+  divider-color: "#1e2630"
+  card-background-color: "#101419"
+  ha-card-background: "#101419"
+  ha-card-border-width: "1px"
+  ha-card-border-color: "#1e2630"
+  ha-card-border-radius: "4px"
+  ha-card-box-shadow: "none"
+
+  # ---- Header -------------------------------------------------------------
+  app-header-background-color: "#0a0c0f"
+  app-header-text-color: "#e8e4d9"
+  app-header-edit-background-color: "#101419"
+
+  # ---- Text ---------------------------------------------------------------
+  primary-text-color: "#e8e4d9"
+  secondary-text-color: "#8b9aa8"
+  text-primary-color: "#0a0c0f"
+  disabled-text-color: "#5b6b7c"
+  primary-color: "#4fd6e0"
+  accent-color: "#f0a020"
+  dark-primary-color: "#3ba8b0"
+  light-primary-color: "#7fe4ec"
+
+  # ---- State colours ------------------------------------------------------
+  state-icon-color: "#8b9aa8"
+  state-icon-active-color: "#4fd6e0"
+  state-sensor-active-color: "#4fd6e0"
+  error-color: "#ff3b30"
+  warning-color: "#f0a020"
+  success-color: "#4fd6e0"
+  info-color: "#8b9aa8"
+
+  # ---- Typography ---------------------------------------------------------
+  # Deliberately none. Home Assistant's default font is used everywhere.
+
+  # ---- Signal palette (consumed by card_mod in the dashboard) -------------
+  # Only what the dashboard actually uses. A variable defined here but unused,
+  # or used but undefined, is caught by tests/test_ha_contract.py.
+  #
+  # The 24 h chart series colours are NOT here: ApexCharts draws to canvas and
+  # cannot resolve CSS variables, so they are literal hex in the dashboard.
+  # Defining them twice would just let the two drift apart.
+  ns-plate: "#101419"
+  ns-rule: "#1e2630"
+  ns-ink-dim: "#8b9aa8"
+  ns-nominal: "#4fd6e0"
+  ns-warn: "#f0a020"
+  ns-fault: "#ff3b30"
+  ns-idle: "#5b6b7c"
+
+  # ---- card-mod ----------------------------------------------------------
+  # Declaring the theme to card-mod makes per-card `card_mod:` styles apply
+  # reliably instead of racing the card's first render (card-mod logs a
+  # performance warning without it, and styles intermittently do not land).
+  # Only this key: the card-mod-*-yaml variants threw during init here.
+  card-mod-theme: Net Sentinel

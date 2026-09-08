@@ -3,15 +3,15 @@ import yaml
 import logging
 import sys
 import os
-import schedule
 from collections import deque
+from datetime import datetime, timezone
 from diagnostics import (
     check_ping, check_dns, check_http, check_multi_dns, check_multi_http,
-    run_traceroute, check_interface_status, run_speedtest,
-    run_cloudflare_speedtest, calculate_jitter, check_router_health,
-    detect_isp_gateway, measure_bufferbloat
+    run_traceroute, check_interface_status, calculate_jitter,
+    check_router_health, detect_isp_gateway
 )
-from classify import classify_connectivity, requires_diagnosis, classify_load
+from classify import classify_connectivity, requires_diagnosis
+from modem_probe import probe_bgw620
 from notifier import Notifier
 
 # Configure Logging
@@ -24,6 +24,54 @@ logger = logging.getLogger("Sentinel")
 
 # Global latency tracking for jitter calculation (last 10 samples)
 latency_history = deque(maxlen=10)
+
+# BGW620 probe cadence. The gateway UI is HTML-only and each probe issues
+# three HTTP requests; running it every tick would hammer the device. We cache
+# the last probe result and refresh at MODEM_PROBE_INTERVAL_S regardless of
+# the main-loop cadence so downstream classification always sees the freshest
+# reasonable snapshot.
+MODEM_PROBE_INTERVAL_S = 60
+_modem_probe_state = {"last_run": 0.0, "result": None}
+
+
+def _maybe_probe_modem(host, now=None):
+    """Call probe_bgw620 at most once every MODEM_PROBE_INTERVAL_S seconds.
+    Returns the cached result (or None if no probe has ever succeeded yet)."""
+    if not host:
+        return None
+    now = now if now is not None else time.time()
+    if now - _modem_probe_state["last_run"] >= MODEM_PROBE_INTERVAL_S:
+        _modem_probe_state["last_run"] = now
+        try:
+            _modem_probe_state["result"] = probe_bgw620(host)
+        except Exception as e:
+            _modem_probe_state["result"] = {
+                "success": False, "error": str(e),
+                "broadband_valid": False, "fiber_valid": False,
+                "wan_state": None, "fiber_state": None, "wan_ip": None,
+                "last_change_timestamp": None, "rx_power_uw": None,
+                "tx_power_uw": None, "temp_c": None,
+            }
+    return _modem_probe_state["result"]
+
+
+# Sliding-window reachability for the modem and ISP gateway. A single ping3
+# sample is noisy on the privileged container (intermittent false positives
+# while the host is genuinely unreachable), which flaps fault attribution
+# between MODEM_DOWN / LASTMILE_FIBER_SUSPECT / ISP_CORE_ROUTING. Reporting the
+# majority state over recent samples gives the classifier a stable signal.
+REACHABILITY_WINDOW = 5
+reachability_history = {}
+
+def smoothed_reachability(key, latency_ms):
+    """Majority-vote reachability over the last REACHABILITY_WINDOW samples.
+    Returns a representative latency (ms) when reachable, else None."""
+    window = reachability_history.setdefault(key, deque(maxlen=REACHABILITY_WINDOW))
+    window.append(latency_ms)
+    responded = [v for v in window if v is not None]
+    if len(responded) * 2 > len(window):
+        return round(sum(responded) / len(responded), 2)
+    return None
 
 import re
 
@@ -73,18 +121,21 @@ def perform_health_check(targets, http_endpoints=None, dns_timeout=2.0, http_tim
     # Layer 1: Local network (your router) - basic ping
     results['router'] = check_ping(targets['router'], timeout=ping_timeout)
 
-    # Layer 2: Cable modem management address (if configured)
+    # Layer 2: Cable modem management address (if configured). Smoothed over a
+    # sliding window so noisy single pings cannot flap the attribution.
     modem_ip = targets.get('modem')
     results['modem_configured'] = bool(modem_ip)
     results['modem'] = (
-        check_ping(modem_ip, timeout=ping_timeout) if modem_ip else None
+        smoothed_reachability('modem', check_ping(modem_ip, timeout=ping_timeout))
+        if modem_ip else None
     )
 
-    # Layer 3: ISP gateway (if configured)
+    # Layer 3: ISP gateway (if configured), smoothed the same way.
     gateway_ip = targets.get('isp_gateway')
     results['isp_gateway_configured'] = bool(gateway_ip)
     results['isp_gateway'] = (
-        check_ping(gateway_ip, timeout=ping_timeout) if gateway_ip else None
+        smoothed_reachability('isp_gateway', check_ping(gateway_ip, timeout=ping_timeout))
+        if gateway_ip else None
     )
 
     # Layer 3: DNS resolution across multiple domains.
@@ -123,6 +174,9 @@ def perform_health_check(targets, http_endpoints=None, dns_timeout=2.0, http_tim
     anchor_url = targets.get('cloud_anchor')
     results['anchor'] = check_http(anchor_url, timeout=http_timeout) if anchor_url else None
 
+    # BGW620 direct observation. Cadence-throttled, non-blocking on failure.
+    results['modem_probe'] = _maybe_probe_modem(targets.get('modem'))
+
     return results
 
 def publish_path_metrics(notifier, results):
@@ -141,54 +195,76 @@ def publish_path_metrics(notifier, results):
         notifier.update_availability('modem_latency', True)
         notifier.update_state('modem_latency', results['modem'])
 
-def perform_speedtest(notifier, targets, speedtest_config=None, thresholds=None):
-    """Measure throughput, then independently measure and classify load quality."""
-    speedtest_config = speedtest_config or {}
-    thresholds = thresholds or {}
-    use_cloudflare = speedtest_config.get('use_cloudflare', True)
-    logger.info("Running scheduled speedtest...")
+    _publish_modem_probe_metrics(
+        notifier,
+        results.get('modem_probe'),
+        enabled=results.get('modem_configured', False),
+    )
 
-    cloudflare_result = run_cloudflare_speedtest() if use_cloudflare else None
-    if cloudflare_result:
-        notifier.update_state('download_speed', cloudflare_result['download_mbps'])
-        if cloudflare_result['latency_ms'] is not None:
-            notifier.update_state('idle_latency', cloudflare_result['latency_ms'])
-    else:
-        output = run_speedtest()
-        if output:
-            try:
-                lines = output.splitlines()
-                notifier.update_state('download_speed', lines[1].split(' ')[1])
-                notifier.update_state('upload_speed', lines[2].split(' ')[1])
-            except Exception as e:
-                logger.error(f"Failed to parse speedtest output: {e}")
 
-    load_target = targets.get('isp_gateway') or '8.8.8.8'
-    load_result = measure_bufferbloat(load_target)
-    if load_result is None:
-        notifier.update_state('load_quality_status', 'UNAVAILABLE')
-        notifier.update_state('load_fault_detail', 'Load generator or idle RTT unavailable')
+# Fiber-page sensors gated by MQTT availability when their source page fails so
+# Home Assistant hides stale values rather than presenting misleading data.
+_MODEM_FIBER_SENSORS = {
+    'modem_rx_power_uw': 'rx_power_uw',
+    'modem_tx_power_uw': 'tx_power_uw',
+    'modem_temp_c': 'temp_c',
+    'modem_last_change': 'last_change_timestamp',
+}
+
+
+def _format_timestamp(value):
+    if value is None:
+        return None
+    try:
+        return datetime.fromtimestamp(value, timezone.utc).isoformat()
+    except (OverflowError, OSError, TypeError, ValueError):
+        return None
+
+
+def _publish_modem_probe_metrics(notifier, probe, enabled=True):
+    if not enabled:
+        notifier.update_state('modem_probe_status', 'disabled')
+        notifier.update_state('modem_wan_state', 'UNAVAILABLE')
+        notifier.update_state('modem_fiber_state', 'UNAVAILABLE')
+        notifier.update_state('modem_wan_ip', 'UNAVAILABLE')
+        for key in _MODEM_FIBER_SENSORS:
+            notifier.update_availability(key, False)
         return
 
-    if load_result['bloat_ms'] is not None:
-        notifier.update_state('bufferbloat_ms', load_result['bloat_ms'])
-    notifier.update_state('loaded_loss_pct', load_result['loaded_loss_pct'])
+    # Suppress publication entirely until the first probe returns; otherwise
+    # HA would show UNAVAILABLE for the first minute even on a healthy gateway.
+    if probe is None:
+        return
 
-    code, confidence = classify_load(
-        load_result,
-        bloat_threshold_ms=thresholds.get('bufferbloat_ms', 50),
-        loaded_loss_threshold_pct=thresholds.get('loaded_loss_pct', 5),
-    )
-    status = code or 'HEALTHY'
-    detail = (
-        f"bloat={load_result['bloat_ms']}ms, "
-        f"loaded_loss={load_result['loaded_loss_pct']}%, "
-        f"confidence={confidence:.2f}"
-    )
-    notifier.update_state('load_quality_status', status)
-    notifier.update_state('load_fault_detail', detail)
-    if code:
-        notifier.log_event('DEGRADED', 'LoadQuality', detail, 'WARNING')
+    broadband_valid = probe.get('broadband_valid', False)
+    fiber_valid = probe.get('fiber_valid', False)
+    if broadband_valid or fiber_valid:
+        status = 'ok' if broadband_valid and fiber_valid else 'partial'
+        wan_state = probe.get('wan_state') if broadband_valid else None
+        wan_ip = probe.get('wan_ip') if broadband_valid else None
+        fiber_state = probe.get('fiber_state') if fiber_valid else None
+        notifier.update_state('modem_probe_status', status)
+        notifier.update_state(
+            'modem_wan_state', wan_state or 'UNAVAILABLE')
+        notifier.update_state(
+            'modem_fiber_state', fiber_state or 'UNAVAILABLE')
+        notifier.update_state('modem_wan_ip', wan_ip or 'UNAVAILABLE')
+        for key, field in _MODEM_FIBER_SENSORS.items():
+            value = probe.get(field) if fiber_valid else None
+            if key == 'modem_last_change':
+                value = _format_timestamp(value)
+            if value is None:
+                notifier.update_availability(key, False)
+            else:
+                notifier.update_availability(key, True)
+                notifier.update_state(key, value)
+    else:
+        notifier.update_state('modem_probe_status', 'failed')
+        notifier.update_state('modem_wan_state', 'UNAVAILABLE')
+        notifier.update_state('modem_fiber_state', 'UNAVAILABLE')
+        notifier.update_state('modem_wan_ip', 'UNAVAILABLE')
+        for key in _MODEM_FIBER_SENSORS:
+            notifier.update_availability(key, False)
 
 def diagnose_issue(targets, results, notifier, ingress_latency_ms=120,
                    jitter_threshold_ms=50):
@@ -247,15 +323,16 @@ def diagnose_issue(targets, results, notifier, ingress_latency_ms=120,
         severity = "WARNING" if code in degraded_codes else "CRITICAL"
         event_type = "DEGRADED" if severity == "WARNING" else "OUTAGE"
         details = {
-            "MODEM_DOWN": "Cable modem is unreachable while the router is up; check modem power and coax",
-            "LASTMILE_RF_SUSPECT": "ISP first hop is unreachable; last-mile or RF failure suspected",
+            "FIBER_LINK_DOWN": "Fiber gateway reports optical WAN is down; check fiber cable and ONT/gateway status",
+            "MODEM_DOWN": "Fiber gateway is unreachable while the router is up; check gateway power and fiber cable",
+            "LASTMILE_FIBER_SUSPECT": "ISP first hop is unreachable; last-mile or fiber uplink failure suspected",
             "ISP_INGRESS_CONGEST": "ISP first-hop latency is above the configured threshold",
             "ISP_CORE_ROUTING": "ISP first hop responds but public connectivity is unavailable",
             "DEGRADED_INTERNET": "Public checks failed while the controlled anchor remained reachable",
         }
         detail = f"{details.get(code, code)} (confidence {confidence:.2f})"
         trace = run_traceroute("8.8.8.8", timeout=15)
-        target = "Modem" if code == "MODEM_DOWN" else "ISP"
+        target = "Modem" if code in ("MODEM_DOWN", "FIBER_LINK_DOWN") else "ISP"
         notifier.log_event(
             event_type, target, f"{detail}. Trace: {trace[-200:]}", severity,
         )
@@ -412,23 +489,16 @@ def main():
     http_timeout = timeouts.get('http_seconds', 10.0)
     ping_timeout = timeouts.get('ping_seconds', 2.0)
     consecutive_failures_threshold = config['monitoring'].get('consecutive_failures_threshold', 3)
+    # While in a failing streak, recheck on this shorter cadence so detection
+    # latency is a few seconds rather than several full healthy intervals.
+    failure_interval = config['monitoring'].get('failure_interval_seconds', 5)
 
     thresholds = config['monitoring'].get('thresholds', {})
     ingress_latency_ms = thresholds.get('ingress_latency_ms', 120)
     jitter_threshold_ms = thresholds.get('jitter_ms', 50)
 
-    speedtest_config = config['monitoring'].get('speedtest', {})
-    speedtest_interval_hours = speedtest_config.get('interval_hours', 6)
-    schedule.every(speedtest_interval_hours).hours.do(
-        perform_speedtest,
-        notifier=notifier,
-        targets=targets,
-        speedtest_config=speedtest_config,
-        thresholds=thresholds,
-    )
-
     logger.info("Network Sentinel Started.")
-    logger.info(f"Configuration: DNS timeout={dns_timeout}s, HTTP timeout={http_timeout}s, Failure threshold={consecutive_failures_threshold}")
+    logger.info(f"Configuration: interval={interval}s, failure_interval={failure_interval}s, DNS timeout={dns_timeout}s, HTTP timeout={http_timeout}s, Failure threshold={consecutive_failures_threshold}")
     if notifier.connected:
         notifier.update_state("status", "Online")
     else:
@@ -439,9 +509,6 @@ def main():
 
     while True:
         try:
-            # Run scheduled tasks (Speedtest)
-            schedule.run_pending()
-
             # Main Health Check
             results = perform_health_check(
                 targets,
@@ -525,7 +592,8 @@ def main():
                     if not http_healthy:
                         logger.error(f"  HTTP: {results.get('http', {}).get('failed_endpoints')}")
 
-            time.sleep(interval)
+            # Fast recheck during a failing streak; normal cadence when healthy.
+            time.sleep(failure_interval if consecutive_failures > 0 else interval)
 
         except KeyboardInterrupt:
             logger.info("Stopping.")
