@@ -159,7 +159,7 @@ See `ha_comprehensive_setup.yaml` for a ready-to-use configuration.
    Create or edit `mqtt.yaml` in your HA config directory (see `ha_comprehensive_setup.yaml` for full config).
 
 2. **Add Dashboard**
-   Copy the contents of `ha_dashboard.yaml` to a new Lovelace dashboard.
+   The dashboard is not in this repo. See "Dashboard" below.
 
 3. **Restart Home Assistant**
    ```bash
@@ -207,18 +207,28 @@ The Cloud Probe monitors your home from **outside**, detecting issues with publi
 
 ---
 
-## 📊 Dashboard Overview
+## 📊 Dashboard
 
-The included dashboard (`ha_dashboard.yaml`) provides:
+The dashboard is **not in this repo**. It is a storage-mode Lovelace dashboard at
+`/net-sentinel`, and its editable source lives in the Home Assistant config repo:
 
-1. **Critical Status** - Immediate health indicator
-2. **Router Health** - Gauge showing 0-100 health score with conditional packet loss/jitter details
-3. **Fault Attribution** - Shows WHO TO BLAME with recommended actions
-4. **Performance** - Download speed and ping metrics
-5. **Connection Quality** - DNS, HTTP latency, and jitter
-6. **Reliability** - Success rates for DNS/HTTP requests + cloud probe status
-7. **Advanced Diagnostics** - Detailed view of all metrics
-8. **Historical Trends** - 24-hour graphs
+- `lovelace/dashboards/network_monitoring.yaml` - the dashboard source
+- `themes/net-sentinel/net-sentinel.yaml` - the colour theme it needs
+
+Storage mode means Home Assistant does not read that YAML file; it is deployed
+through the `lovelace/config/save` websocket command. Editing the file alone
+changes nothing until you deploy it.
+
+This repo used to carry two copies of an older dashboard. Both drifted from the
+live one for months, so they were removed and a test now keeps them out.
+
+Three views:
+
+1. **Live** - the verdict and remedy, the hop-by-hop path readout, BGW620 fiber
+   plant (optical power, link state, WAN IP), router health, quality under load,
+   throughput, and 24 h trends on a log axis
+2. **Diagnostics** - every published entity, grouped
+3. **Runbook** - what each fault code means and what to do about it
 
 ---
 

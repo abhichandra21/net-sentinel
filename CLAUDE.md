@@ -248,12 +248,17 @@ That distinction matters: a hidden sensor and a sensor reporting last hour's opt
 
 YAML files in the repo are reference copies of what lives in Home Assistant, not something the sentinel reads:
 
-- `ha_comprehensive_setup.yaml` - MQTT sensor definitions
-- `ha_dashboard.yaml`, `config/network_monitoring_dashboard.yaml` - Lovelace cards
+- `ha_comprehensive_setup.yaml` - MQTT sensor definitions. Currently more complete than the live `mqtt.yaml`, which was never updated with the gateway sensors.
 - `ha_automation_alerts.yaml` - alert automations
-- `ha_complete_setup.yaml` - helpers, webhook automation, dashboard in one file
+- `ha_complete_setup.yaml` - helpers and the cloud-probe webhook automation
 
 `tests/test_ha_contract.py` and `tests/test_discovery.py` check that published keys and these YAML files agree. If you add a sensor and those fail, the YAML is what is out of date.
+
+### The dashboard is not in this repo
+
+The Lovelace dashboard is a **storage-mode** dashboard at `/net-sentinel`, so Home Assistant reads `.storage/lovelace.net_sentinel`, not any YAML file. Its editable source lives in the Home Assistant config repo as `lovelace/dashboards/network_monitoring.yaml`, alongside the `themes/net-sentinel` theme it depends on, and is deployed with the `lovelace/config/save` websocket command.
+
+Two stale copies (`ha_dashboard.yaml` and `config/network_monitoring_dashboard.yaml`) used to live here and drifted from the live dashboard for months. They were deleted, and `test_no_stale_dashboard_copies_are_reintroduced` keeps them from coming back. Do not add a dashboard copy to this repo; there is nothing here that can verify it against the real one.
 
 ## Implementation details worth knowing
 
@@ -356,7 +361,7 @@ Real, known, and not worth fixing as a drive-by:
 2. Add a human-readable line to the `details` dict in `diagnose_issue`.
 3. Decide severity. Membership in `degraded_codes` selects `WARNING`/`DEGRADED` over `CRITICAL`/`OUTAGE`.
 4. Extend `tests/test_classify.py`, including a case proving the new rule does not steal from an existing one.
-5. Update `ha_dashboard.yaml` and `ha_automation_alerts.yaml` if it needs to be visible or alertable.
+5. Update `ha_automation_alerts.yaml` if it needs to be alertable, and the verdict card's `remedy` map in the Home Assistant repo's `lovelace/dashboards/network_monitoring.yaml` if an operator needs to see what to do about it. A code with no `remedy` entry falls back to generic advice.
 6. Update the table in this file and in `README.md`.
 
 ### Changing intervals or thresholds

@@ -7,7 +7,6 @@ ROOT = Path(__file__).resolve().parent.parent
 def test_new_fault_codes_are_documented_and_alerted():
     readme = (ROOT / "README.md").read_text()
     ha = (ROOT / "ha_comprehensive_setup.yaml").read_text()
-    dashboard = (ROOT / "ha_dashboard.yaml").read_text()
     for code in (
         "MODEM_DOWN",
         "LASTMILE_FIBER_SUSPECT",
@@ -16,19 +15,14 @@ def test_new_fault_codes_are_documented_and_alerted():
     ):
         assert code in readme
         assert code in ha
-    assert "LASTMILE" in dashboard
 
 
 def test_modem_observability_is_documented_across_ha_surfaces():
     readme = (ROOT / "README.md").read_text()
     ha = (ROOT / "ha_comprehensive_setup.yaml").read_text()
-    dashboard = (ROOT / "ha_dashboard.yaml").read_text()
-    detailed_dashboard = (
-        ROOT / "config" / "network_monitoring_dashboard.yaml"
-    ).read_text()
     alerts = (ROOT / "ha_automation_alerts.yaml").read_text()
 
-    for text in (readme, ha, dashboard, detailed_dashboard, alerts):
+    for text in (readme, ha, alerts):
         assert "MODEM_DOWN" in text
     for topic in (
         "modem_status/state",
@@ -54,14 +48,10 @@ def test_setup_points_modem_target_at_the_bgw620():
 
 def test_manual_gateway_last_change_sensor_is_a_timestamp():
     ha = (ROOT / "ha_comprehensive_setup.yaml").read_text()
-    dashboard = (
-        ROOT / "config" / "network_monitoring_dashboard.yaml"
-    ).read_text()
 
     assert "modem_last_change/state" in ha
     assert "device_class: timestamp" in ha
     assert "modem_last_change_seconds" not in ha
-    assert "gateway_last_change_seconds" not in dashboard
 
 
 def test_load_quality_topics_exist_in_manual_ha_config():
@@ -101,8 +91,17 @@ def test_retired_isp_equipment_code_is_not_operator_facing():
     for name in (
         "README.md",
         "ha_comprehensive_setup.yaml",
-        "ha_dashboard.yaml",
-        "config/network_monitoring_dashboard.yaml",
         "ha_automation_alerts.yaml",
     ):
         assert "ISP_EQUIPMENT" not in (ROOT / name).read_text()
+
+
+def test_no_stale_dashboard_copies_are_reintroduced():
+    """The Lovelace dashboard is storage-mode and lives in the Home Assistant
+    config repo, not here. Two stale copies used to sit in this repo and drifted
+    for months. Keep them out so there is one place to look."""
+    for name in ("ha_dashboard.yaml", "config/network_monitoring_dashboard.yaml"):
+        assert not (ROOT / name).exists(), (
+            f"{name} is back. The dashboard lives in the HomeAssistant repo "
+            "(lovelace/dashboards/network_monitoring.yaml); do not copy it here."
+        )
