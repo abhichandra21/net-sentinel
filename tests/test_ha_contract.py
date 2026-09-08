@@ -228,3 +228,24 @@ def test_load_classifier_is_gone():
     assert "DEGRADED_UNDER_LOAD" not in alerts, (
         "an alert still triggers on DEGRADED_UNDER_LOAD"
     )
+
+
+def test_alert_reference_uses_discovery_entities_and_real_statuses():
+    """The hand-written sensor.internet_* / sensor.router_* MQTT duplicates were
+    deleted, so an alert naming them would never fire. Every entity here must be
+    a discovery entity, and every status must be one main() can actually emit."""
+    import re
+
+    alerts = (ROOT / "ha_automation_alerts.yaml").read_text()
+
+    entities = set(re.findall(r"sensor\.[a-z0-9_]+", alerts))
+    stale = {e for e in entities
+             if not e.startswith("sensor.network_sentinel_netsentinel_")}
+    assert not stale, f"alerts reference non-discovery entities: {sorted(stale)}"
+
+    # monitor.py: status is the blame code itself when it contains DEGRADED,
+    # DEGRADED_ISP_INGRESS_CONGEST for ingress, TRANSIENT, else OUTAGE_<blame>.
+    # "DEGRADED_ROUTER" was in here for a long time and could never match.
+    assert "DEGRADED_ROUTER" not in alerts, (
+        "a degraded router surfaces as ROUTER_DEGRADED, not DEGRADED_ROUTER"
+    )

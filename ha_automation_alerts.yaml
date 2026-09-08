@@ -9,7 +9,7 @@
   description: "Immediate alert when internet outage is CONFIRMED"
   trigger:
     - platform: state
-      entity_id: sensor.internet_status
+      entity_id: sensor.network_sentinel_netsentinel_network_status
       from: null
       to:
         - "OUTAGE_ISP_DNS"
@@ -27,20 +27,20 @@
         message: >
           Internet connection FAILED!
 
-          Status: {{ states('sensor.internet_status') }}
-          Blame: {{ states('sensor.internet_fault_blame') }}
-          Detail: {{ states('sensor.internet_fault_detail') }}
+          Status: {{ states('sensor.network_sentinel_netsentinel_network_status') }}
+          Blame: {{ states('sensor.network_sentinel_netsentinel_fault_attribution') }}
+          Detail: {{ states('sensor.network_sentinel_netsentinel_fault_detail') }}
           Time: {{ now().strftime('%I:%M:%S %p') }}
 
-          Router: {{ states('sensor.internet_router_latency') }}ms
-          DNS: {{ states('sensor.internet_dns_latency') }}ms
-          HTTP: {{ states('sensor.internet_http_latency') }}ms
+          Router: {{ states('sensor.network_sentinel_netsentinel_router_latency') }}ms
+          DNS: {{ states('sensor.network_sentinel_netsentinel_dns_latency') }}ms
+          HTTP: {{ states('sensor.network_sentinel_netsentinel_http_latency') }}ms
 
 - alias: "Net Alert - Connection RESTORED"
   description: "Alert when internet connection is restored"
   trigger:
     - platform: state
-      entity_id: sensor.internet_status
+      entity_id: sensor.network_sentinel_netsentinel_network_status
       from:
         - "OUTAGE_ISP_DNS"
         - "OUTAGE_ISP_ROUTING"
@@ -59,14 +59,14 @@
           Internet connection is back online!
 
           Downtime: Check logs for recovery time
-          Router Health: {{ states('sensor.router_health_score') }}/100
+          Router Health: {{ states('sensor.network_sentinel_netsentinel_router_health_score') }}/100
 
 - alias: "Net Alert - Router DEGRADED"
   description: "Alert when router performance is degraded"
   trigger:
     - platform: state
-      entity_id: sensor.internet_status
-      to: "DEGRADED_ROUTER"
+      entity_id: sensor.network_sentinel_netsentinel_network_status
+      to: "ROUTER_DEGRADED"
   action:
     - service: notify.notify
       data:
@@ -74,9 +74,9 @@
         message: >
           Router is struggling but still operational
 
-          Health Score: {{ states('sensor.router_health_score') }}/100
-          Packet Loss: {{ states('sensor.router_packet_loss') }}%
-          Router Latency: {{ states('sensor.internet_router_latency') }}ms
+          Health Score: {{ states('sensor.network_sentinel_netsentinel_router_health_score') }}/100
+          Packet Loss: {{ states('sensor.network_sentinel_netsentinel_router_packet_loss') }}%
+          Router Latency: {{ states('sensor.network_sentinel_netsentinel_router_latency') }}ms
 
 # ============================================================================
 # DEGRADATION WARNINGS - Persistent issues
@@ -86,7 +86,7 @@
   description: "Warning when connection quality is poor due to high jitter"
   trigger:
     - platform: state
-      entity_id: sensor.internet_status
+      entity_id: sensor.network_sentinel_netsentinel_network_status
       to: "DEGRADED_QUALITY"
   action:
     - service: notify.notify
@@ -95,14 +95,14 @@
         message: >
           High jitter detected - connection is unstable
 
-          Jitter: {{ states('sensor.jitter') }}ms
-          HTTP Latency: {{ states('sensor.internet_http_latency') }}ms
+          Jitter: {{ states('sensor.network_sentinel_netsentinel_connection_jitter') }}ms
+          HTTP Latency: {{ states('sensor.network_sentinel_netsentinel_http_latency') }}ms
 
 - alias: "Net Alert - Partial Internet Failure"
   description: "Warning when some internet services are unreachable"
   trigger:
     - platform: state
-      entity_id: sensor.internet_status
+      entity_id: sensor.network_sentinel_netsentinel_network_status
       to:
         - "DEGRADED_DNS"
         - "DEGRADED_INTERNET"
@@ -113,9 +113,9 @@
         message: >
           Some internet services are unreachable
 
-          Status: {{ states('sensor.internet_status') }}
-          DNS Success Rate: {{ states('sensor.internet_dns_success_rate') }}
-          HTTP Success Rate: {{ states('sensor.internet_http_success_rate') }}
+          Status: {{ states('sensor.network_sentinel_netsentinel_network_status') }}
+          DNS Success Rate: {{ states('sensor.network_sentinel_netsentinel_dns_success_rate') }}
+          HTTP Success Rate: {{ states('sensor.network_sentinel_netsentinel_http_success_rate') }}
 
 # ============================================================================
 # ROUTER HEALTH ALERTS - Hardware issues
@@ -125,11 +125,11 @@
   description: "Alert when router health drops to critical levels"
   trigger:
     - platform: numeric_state
-      entity_id: sensor.router_health_score
+      entity_id: sensor.network_sentinel_netsentinel_router_health_score
       below: 30
   condition:
     - condition: state
-      entity_id: sensor.internet_status
+      entity_id: sensor.network_sentinel_netsentinel_network_status
       state: "HEALTHY"
   action:
     - service: notify.notify
@@ -138,9 +138,9 @@
         message: >
           Router health has dropped to CRITICAL levels!
 
-          Health Score: {{ states('sensor.router_health_score') }}/100
-          Packet Loss: {{ states('sensor.router_packet_loss') }}%
-          Jitter: {{ states('sensor.router_jitter_internal') }}ms
+          Health Score: {{ states('sensor.network_sentinel_netsentinel_router_health_score') }}/100
+          Packet Loss: {{ states('sensor.network_sentinel_netsentinel_router_packet_loss') }}%
+          Jitter: {{ states('sensor.network_sentinel_netsentinel_router_jitter') }}ms
 
           Router may be failing - check hardware!
 
@@ -152,7 +152,7 @@
   description: "Notify if internet is degraded for 30 minutes"
   trigger:
     - platform: state
-      entity_id: sensor.internet_status
+      entity_id: sensor.network_sentinel_netsentinel_network_status
       to:
         - "DEGRADED_DNS"
         - "DEGRADED_INTERNET"
@@ -166,10 +166,10 @@
         message: >
           Internet has been degraded for 30+ minutes
 
-          Status: {{ states('sensor.internet_status') }}
-          DNS: {{ states('sensor.internet_dns_latency') }}ms
-          HTTP: {{ states('sensor.internet_http_latency') }}ms
-          Jitter: {{ states('sensor.jitter') }}ms
+          Status: {{ states('sensor.network_sentinel_netsentinel_network_status') }}
+          DNS: {{ states('sensor.network_sentinel_netsentinel_dns_latency') }}ms
+          HTTP: {{ states('sensor.network_sentinel_netsentinel_http_latency') }}ms
+          Jitter: {{ states('sensor.network_sentinel_netsentinel_connection_jitter') }}ms
 
 # ============================================================================
 # TRANSIENT ISSUES - Quick recovery notifications
@@ -179,11 +179,11 @@
   description: "Notify when transient issue resolves quickly"
   trigger:
     - platform: state
-      entity_id: sensor.internet_status
+      entity_id: sensor.network_sentinel_netsentinel_network_status
       to: "HEALTHY"
   condition:
     - condition: state
-      entity_id: sensor.internet_status
+      entity_id: sensor.network_sentinel_netsentinel_network_status
       state: "TRANSIENT"
   action:
     - service: notify.notify
@@ -193,8 +193,8 @@
           Network issue resolved itself
 
           Internet is back to normal
-          DNS: {{ states('sensor.internet_dns_latency') }}ms
-          HTTP: {{ states('sensor.internet_http_latency') }}ms
+          DNS: {{ states('sensor.network_sentinel_netsentinel_dns_latency') }}ms
+          HTTP: {{ states('sensor.network_sentinel_netsentinel_http_latency') }}ms
 
 # ============================================================================
 # CONFIGURATION NOTES
@@ -218,7 +218,7 @@
 # For escalation (notify different people for different issues):
 #    Create separate actions with conditions:
 #    - condition: state
-#      entity_id: sensor.internet_fault_blame
+#      entity_id: sensor.network_sentinel_netsentinel_fault_attribution
 #      state: ROUTER_CRITICAL
 #    - service: notify.mobile_app_your_phone
 #
