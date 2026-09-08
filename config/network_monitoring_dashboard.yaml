@@ -250,7 +250,7 @@ cards:
         name: Rx Power (uW)
       - entity: sensor.gateway_temp_c
         name: Transceiver Temperature
-      - entity: sensor.gateway_last_change_seconds
+      - entity: sensor.gateway_last_change
         name: Optical Link Last Change
       - entity: sensor.gateway_probe_status
         name: Probe Status

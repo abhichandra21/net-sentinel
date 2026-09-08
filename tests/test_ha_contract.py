@@ -39,6 +39,30 @@ def test_modem_observability_is_documented_across_ha_surfaces():
     assert "OUTAGE_MODEM_DOWN" in alerts
 
 
+def test_setup_points_modem_target_at_the_bgw620():
+    for name in (
+        "config/config.example.yaml",
+        "README.md",
+        "DEPLOYMENT.md",
+    ):
+        text = (ROOT / name).read_text()
+        assert "BGW620" in text
+        assert "192.168.1.254" in text
+        assert "192.168.100.1" not in text
+
+
+def test_manual_gateway_last_change_sensor_is_a_timestamp():
+    ha = (ROOT / "ha_comprehensive_setup.yaml").read_text()
+    dashboard = (
+        ROOT / "config" / "network_monitoring_dashboard.yaml"
+    ).read_text()
+
+    assert "modem_last_change/state" in ha
+    assert "device_class: timestamp" in ha
+    assert "modem_last_change_seconds" not in ha
+    assert "gateway_last_change_seconds" not in dashboard
+
+
 def test_load_quality_topics_exist_in_manual_ha_config():
     ha = (ROOT / "ha_comprehensive_setup.yaml").read_text()
     for topic in (

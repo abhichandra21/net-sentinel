@@ -63,7 +63,7 @@ monitoring:
   interval_seconds: 30
   targets:
     router: "192.168.1.1"        # Your router
-    modem: null                   # Set to "192.168.100.1" after verifying ICMP
+    modem: null                   # Set to your BGW620 LAN address, usually "192.168.1.254"
     isp_gateway: null
 
 mqtt:

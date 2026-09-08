@@ -11,7 +11,7 @@ PUBLISHED_KEYS = {
     "modem_latency",
     "modem_wan_state", "modem_fiber_state", "modem_wan_ip",
     "modem_rx_power_uw", "modem_tx_power_uw", "modem_temp_c",
-    "modem_last_change_seconds", "modem_probe_status",
+    "modem_last_change", "modem_probe_status",
 }
 
 
@@ -54,6 +54,11 @@ def test_retired_discovery_topics_are_deleted():
         "",
         True,
     ) in published
+    assert (
+        "homeassistant/sensor/netsentinel_modem_last_change_seconds/config",
+        "",
+        True,
+    ) in published
 
 
 def test_modem_latency_discovery_has_availability_topic():
@@ -78,6 +83,28 @@ def test_modem_latency_discovery_has_availability_topic():
     )
     assert payload["payload_available"] == "online"
     assert payload["payload_not_available"] == "offline"
+
+
+def test_gateway_last_change_discovery_is_a_timestamp():
+    import json
+    published = []
+
+    class Client:
+        def publish(self, topic, payload, retain=False):
+            published.append((topic, payload, retain))
+
+    notifier = Notifier.__new__(Notifier)
+    notifier.connected = True
+    notifier.config = {"mqtt": {"topic_prefix": "home/network/sentinel"}}
+    notifier.mqtt_client = Client()
+    notifier._publish_discovery()
+
+    topic = "homeassistant/sensor/netsentinel_modem_last_change/config"
+    payload = next(json.loads(body) for sent_topic, body, _ in published
+                   if sent_topic == topic)
+    assert payload["device_class"] == "timestamp"
+    assert "unit_of_measurement" not in payload
+    assert "state_class" not in payload
 
 
 def test_update_availability_publishes_retained_state():

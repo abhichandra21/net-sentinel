@@ -54,7 +54,10 @@ def test_example_config_exposes_load_quality_thresholds():
 
 def test_example_config_exposes_opt_in_modem_target():
     config_path = pathlib.Path(__file__).resolve().parent.parent / "config" / "config.example.yaml"
-    config = yaml.safe_load(config_path.read_text())
+    config_text = config_path.read_text()
+    config = yaml.safe_load(config_text)
 
     assert "modem" in config["monitoring"]["targets"]
     assert config["monitoring"]["targets"]["modem"] is None
+    assert "BGW620" in config_text
+    assert "192.168.1.254" in config_text

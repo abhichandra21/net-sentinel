@@ -139,20 +139,19 @@ mqtt:
       unique_id: gateway_temp_c
 
     - name: "Gateway Optical Last Change"
-      state_topic: "home/network/sentinel/modem_last_change_seconds/state"
-      availability_topic: "home/network/sentinel/modem_last_change_seconds/availability"
+      state_topic: "home/network/sentinel/modem_last_change/state"
+      availability_topic: "home/network/sentinel/modem_last_change/availability"
       payload_available: "online"
       payload_not_available: "offline"
-      unit_of_measurement: "s"
-      icon: mdi:timer-sand
-      state_class: measurement
-      unique_id: gateway_last_change_seconds
+      icon: mdi:clock-outline
+      device_class: timestamp
+      unique_id: gateway_last_change
 
     - name: "Gateway Probe Status"
       state_topic: "home/network/sentinel/modem_probe_status/state"
       icon: mdi:cog-sync
       unique_id: gateway_probe_status
-      # Values: ok, failed
+      # Values: ok, partial, failed, disabled
 
     - name: "Internet Router Latency"
       state_topic: "home/network/sentinel/router_latency/state"

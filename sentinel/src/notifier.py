@@ -79,12 +79,11 @@ class Notifier:
             "availability": True,
             "state_class": "measurement",
         },
-        "modem_last_change_seconds": {
+        "modem_last_change": {
             "name": "Gateway Optical Last Change",
-            "unit_of_measurement": "s",
-            "icon": "mdi:timer-sand",
+            "icon": "mdi:clock-outline",
             "availability": True,
-            "state_class": "measurement",
+            "device_class": "timestamp",
         },
         "modem_probe_status": {
             "name": "Gateway Probe Status",
@@ -92,7 +91,11 @@ class Notifier:
         },
     }
 
-    RETIRED_DISCOVERY_KEYS = {"internet_latency", "speedtest_latency"}
+    RETIRED_DISCOVERY_KEYS = {
+        "internet_latency",
+        "speedtest_latency",
+        "modem_last_change_seconds",
+    }
 
     def __init__(self, config):
         self.config = config
@@ -165,6 +168,8 @@ class Notifier:
                 config_payload["unit_of_measurement"] = data["unit_of_measurement"]
             if "state_class" in data:
                 config_payload["state_class"] = data["state_class"]
+            if "device_class" in data:
+                config_payload["device_class"] = data["device_class"]
             if data.get("availability"):
                 config_payload["availability_topic"] = (
                     f"{prefix}/{key}/availability"

@@ -22,7 +22,8 @@ def classify_connectivity(results, ingress_latency_ms=120):
     # if the BGW620 itself reports the optical link is down, we know exactly
     # where the fault is, regardless of what DNS/HTTP/gateway probes show.
     probe = results.get("modem_probe")
-    if probe and probe.get("success") and probe.get("fiber_state") == "down":
+    if (probe and probe.get("fiber_valid")
+            and probe.get("fiber_state") == "down"):
         return ("FIBER_LINK_DOWN", 0.95)
     dns_ok = results.get("dns", {}).get("all_succeeded", True)
     http_ok = results.get("http", {}).get("all_succeeded", True)

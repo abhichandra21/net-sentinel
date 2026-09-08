@@ -130,7 +130,9 @@ def test_fiber_link_down_probe_takes_precedence_over_modem_down():
         http_ok=False,
         anchor=(False, None),
     )
-    results["modem_probe"] = {"success": True, "fiber_state": "down"}
+    results["modem_probe"] = {
+        "success": True, "fiber_valid": True, "fiber_state": "down",
+    }
 
     code, confidence = classify_connectivity(results)
 
@@ -143,7 +145,9 @@ def test_fiber_link_down_probe_takes_precedence_over_lastmile_suspect():
     results = _results(
         gw=None, dns_ok=False, http_ok=False, anchor=(False, None),
     )
-    results["modem_probe"] = {"success": True, "fiber_state": "down"}
+    results["modem_probe"] = {
+        "success": True, "fiber_valid": True, "fiber_state": "down",
+    }
 
     code, _ = classify_connectivity(results)
 
@@ -163,11 +167,31 @@ def test_failed_probe_falls_back_to_inferred_attribution():
     assert code == "LASTMILE_FIBER_SUSPECT"
 
 
+def test_valid_fiber_down_page_overrides_failed_broadband_page():
+    results = _results(
+        gw=None, dns_ok=False, http_ok=False, anchor=(False, None),
+    )
+    results["modem_probe"] = {
+        "success": False,
+        "broadband_valid": False,
+        "fiber_valid": True,
+        "fiber_state": "down",
+        "error": "broadbandstatistics: HTTP 500",
+    }
+
+    code, confidence = classify_connectivity(results)
+
+    assert code == "FIBER_LINK_DOWN"
+    assert confidence >= 0.95
+
+
 def test_fiber_up_probe_does_not_override_other_faults():
     results = _results(
         gw=None, dns_ok=False, http_ok=False, anchor=(False, None),
     )
-    results["modem_probe"] = {"success": True, "fiber_state": "up"}
+    results["modem_probe"] = {
+        "success": True, "fiber_valid": True, "fiber_state": "up",
+    }
 
     code, _ = classify_connectivity(results)
 

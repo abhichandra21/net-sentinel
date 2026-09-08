@@ -5,6 +5,7 @@ import sys
 import os
 import schedule
 from collections import deque
+from datetime import datetime, timezone
 from diagnostics import (
     check_ping, check_dns, check_http, check_multi_dns, check_multi_http,
     run_traceroute, check_interface_status, run_speedtest,
@@ -48,8 +49,9 @@ def _maybe_probe_modem(host, now=None):
         except Exception as e:
             _modem_probe_state["result"] = {
                 "success": False, "error": str(e),
+                "broadband_valid": False, "fiber_valid": False,
                 "wan_state": None, "fiber_state": None, "wan_ip": None,
-                "last_change_seconds": None, "rx_power_uw": None,
+                "last_change_timestamp": None, "rx_power_uw": None,
                 "tx_power_uw": None, "temp_c": None,
             }
     return _modem_probe_state["result"]
@@ -195,33 +197,64 @@ def publish_path_metrics(notifier, results):
         notifier.update_availability('modem_latency', True)
         notifier.update_state('modem_latency', results['modem'])
 
-    _publish_modem_probe_metrics(notifier, results.get('modem_probe'))
+    _publish_modem_probe_metrics(
+        notifier,
+        results.get('modem_probe'),
+        enabled=results.get('modem_configured', False),
+    )
 
 
-# Numeric probe sensors gated by MQTT availability when the probe fails so
+# Fiber-page sensors gated by MQTT availability when their source page fails so
 # Home Assistant hides stale values rather than presenting misleading data.
-_MODEM_NUMERIC_SENSORS = (
-    'modem_rx_power_uw', 'modem_tx_power_uw', 'modem_temp_c',
-    'modem_last_change_seconds',
-)
+_MODEM_FIBER_SENSORS = {
+    'modem_rx_power_uw': 'rx_power_uw',
+    'modem_tx_power_uw': 'tx_power_uw',
+    'modem_temp_c': 'temp_c',
+    'modem_last_change': 'last_change_timestamp',
+}
 
 
-def _publish_modem_probe_metrics(notifier, probe):
+def _format_timestamp(value):
+    if value is None:
+        return None
+    try:
+        return datetime.fromtimestamp(value, timezone.utc).isoformat()
+    except (OverflowError, OSError, TypeError, ValueError):
+        return None
+
+
+def _publish_modem_probe_metrics(notifier, probe, enabled=True):
+    if not enabled:
+        notifier.update_state('modem_probe_status', 'disabled')
+        notifier.update_state('modem_wan_state', 'UNAVAILABLE')
+        notifier.update_state('modem_fiber_state', 'UNAVAILABLE')
+        notifier.update_state('modem_wan_ip', 'UNAVAILABLE')
+        for key in _MODEM_FIBER_SENSORS:
+            notifier.update_availability(key, False)
+        return
+
     # Suppress publication entirely until the first probe returns; otherwise
     # HA would show UNAVAILABLE for the first minute even on a healthy gateway.
     if probe is None:
         return
 
-    if probe.get('success'):
-        notifier.update_state('modem_probe_status', 'ok')
+    broadband_valid = probe.get('broadband_valid', False)
+    fiber_valid = probe.get('fiber_valid', False)
+    if broadband_valid or fiber_valid:
+        status = 'ok' if broadband_valid and fiber_valid else 'partial'
+        wan_state = probe.get('wan_state') if broadband_valid else None
+        wan_ip = probe.get('wan_ip') if broadband_valid else None
+        fiber_state = probe.get('fiber_state') if fiber_valid else None
+        notifier.update_state('modem_probe_status', status)
         notifier.update_state(
-            'modem_wan_state', probe.get('wan_state') or 'UNAVAILABLE')
+            'modem_wan_state', wan_state or 'UNAVAILABLE')
         notifier.update_state(
-            'modem_fiber_state', probe.get('fiber_state') or 'UNAVAILABLE')
-        notifier.update_state(
-            'modem_wan_ip', probe.get('wan_ip') or 'UNAVAILABLE')
-        for key in _MODEM_NUMERIC_SENSORS:
-            value = probe.get(key.replace('modem_', ''))
+            'modem_fiber_state', fiber_state or 'UNAVAILABLE')
+        notifier.update_state('modem_wan_ip', wan_ip or 'UNAVAILABLE')
+        for key, field in _MODEM_FIBER_SENSORS.items():
+            value = probe.get(field) if fiber_valid else None
+            if key == 'modem_last_change':
+                value = _format_timestamp(value)
             if value is None:
                 notifier.update_availability(key, False)
             else:
@@ -232,7 +265,7 @@ def _publish_modem_probe_metrics(notifier, probe):
         notifier.update_state('modem_wan_state', 'UNAVAILABLE')
         notifier.update_state('modem_fiber_state', 'UNAVAILABLE')
         notifier.update_state('modem_wan_ip', 'UNAVAILABLE')
-        for key in _MODEM_NUMERIC_SENSORS:
+        for key in _MODEM_FIBER_SENSORS:
             notifier.update_availability(key, False)
 
 def perform_speedtest(notifier, targets, speedtest_config=None, thresholds=None):

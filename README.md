@@ -8,7 +8,7 @@ The system consists of two independent components that report to **Home Assistan
 
 1.  **Local Sentinel (Docker)**:
     *   Runs on your home network (Raspberry Pi, NAS, Server).
-    *   Monitors: Router Health → Cable Modem (optional) → ISP Gateway → Public DNS → Website Reachability.
+    *   Monitors: Router Health → BGW620 Fiber Gateway (optional) → ISP Gateway → Public DNS → Website Reachability.
     *   Checks: Ping latency, packet loss, jitter, DNS resolution, periodic Speedtests.
     *   Reporting: **MQTT** with Auto-Discovery.
     *   *Diagnoses if the issue is your Router, Modem, or ISP with detailed health scoring.*
@@ -113,7 +113,7 @@ Net Sentinel provides **clear fault codes** so you know exactly who to call:
     monitoring:
       targets:
         router: "192.168.1.1"       # Your local router IP
-        modem: null                  # Set to e.g. "192.168.100.1" only if ICMP was verified
+        modem: null                  # Set to your BGW620 LAN address, usually "192.168.1.254"
         isp_gateway: "100.64.0.1"   # ISP Gateway (find via 'traceroute 8.8.8.8')
         public_dns_1: "8.8.8.8"     # Primary DNS resolver to test
         public_dns_2: "1.1.1.1"     # Optional secondary DNS resolver

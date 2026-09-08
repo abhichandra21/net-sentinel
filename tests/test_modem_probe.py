@@ -94,11 +94,13 @@ def test_happy_path_returns_all_fields(session_cls):
     result = probe_bgw620("192.168.10.254")
 
     assert result["success"] is True
+    assert result["broadband_valid"] is True
+    assert result["fiber_valid"] is True
     assert result["error"] is None
     assert result["wan_state"] == "up"
     assert result["fiber_state"] == "up"
     assert result["wan_ip"] == "104.181.122.68"
-    assert result["last_change_seconds"] == 1788819872
+    assert result["last_change_timestamp"] == 1788819872
     # 0.177 * 0.1 = 0.0177 uW
     assert result["rx_power_uw"] == pytest.approx(0.0177, abs=1e-4)
     assert result["tx_power_uw"] == pytest.approx(3.963, abs=1e-3)
@@ -135,13 +137,15 @@ def test_fiberstat_timeout_leaves_wan_populated(session_cls):
     result = probe_bgw620("192.168.10.254")
 
     assert result["success"] is False
+    assert result["broadband_valid"] is True
+    assert result["fiber_valid"] is False
     assert result["wan_state"] == "up"
     assert result["wan_ip"] == "104.181.122.68"
     assert result["fiber_state"] is None
     assert result["rx_power_uw"] is None
     assert result["tx_power_uw"] is None
     assert result["temp_c"] is None
-    assert result["last_change_seconds"] is None
+    assert result["last_change_timestamp"] is None
     assert "fiberstat" in result["error"]
 
 
@@ -158,11 +162,31 @@ def test_http_500_on_bbstats_returns_failure(session_cls):
     result = probe_bgw620("192.168.10.254")
 
     assert result["success"] is False
+    assert result["broadband_valid"] is False
+    assert result["fiber_valid"] is True
     assert result["wan_state"] is None
     assert result["wan_ip"] is None
     assert "broadbandstatistics" in result["error"]
     # Fiberstat still parsed successfully.
     assert result["fiber_state"] == "up"
+
+
+@patch("modem_probe.requests.Session")
+def test_http_200_with_unrecognized_pages_returns_failure(session_cls):
+    session_cls.return_value = _session_with(
+        _make_response(HOME_HTML),
+        {
+            "broadbandstatistics.ha": _make_response("<html>changed</html>"),
+            "fiberstat.ha": _make_response("<html>changed</html>"),
+        },
+    )
+
+    result = probe_bgw620("192.168.10.254")
+
+    assert result["success"] is False
+    assert result["broadband_valid"] is False
+    assert result["fiber_valid"] is False
+    assert result["error"] is not None
 
 
 @patch("modem_probe.requests.Session")

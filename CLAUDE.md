@@ -135,7 +135,7 @@ Order inside `diagnose_issue`:
 
 Inside `classify_connectivity`, two rules are worth knowing:
 
-- A successful BGW620 probe reporting `fiber_state == "down"` short-circuits everything at confidence 0.95. Direct observation from the gateway beats inference from probes.
+- A valid BGW620 fiber page reporting `fiber_state == "down"` short-circuits everything at confidence 0.95, even if the broadband page failed. Direct observation from the gateway beats inference from probes.
 - Every other code requires `isp_gateway_configured`. Without a known first hop there is no way to separate last mile from core, so the classifier returns `None` and lets the DNS/HTTP fallbacks handle it.
 
 `outage_confidence` is just the fraction of independent signals that agree something is down.
@@ -165,7 +165,7 @@ monitoring:
 
   targets:
     router: "192.168.1.1"
-    modem: null          # BGW620 address; enables ping + HTML probe
+    modem: null          # BGW620 LAN address, usually 192.168.1.254; enables ping + HTML probe
     isp_gateway: null    # auto-detected at startup when null
     cloud_anchor: null   # our own VPS URL
     public_dns_1: "8.8.8.8"
@@ -219,7 +219,7 @@ There is no re-detection, so a gateway change needs a restart.
 
 **`sentinel/src/diagnostics.py`** (406 lines) - all network I/O. Ping, DNS, HTTP, traceroute, gateway detection, router health and scoring, jitter, bufferbloat under verified load, Cloudflare and speedtest-cli throughput.
 
-**`sentinel/src/modem_probe.py`** (124 lines) - BGW620-700 scraper. Three requests per probe: `home.ha` for a session cookie and form nonce, then POSTs to `broadbandstatistics.ha` and `fiberstat.ha`. Regex parsing, deliberately no BeautifulSoup dependency. Never logs; the caller decides. Returns a dict with `success=False` and `error` set on any failure, and reports partial results when one of the two pages succeeds.
+**`sentinel/src/modem_probe.py`** (124 lines) - BGW620-700 scraper. Three requests per probe: `home.ha` for a session cookie and form nonce, then POSTs to `broadbandstatistics.ha` and `fiberstat.ha`. Regex parsing, deliberately no BeautifulSoup dependency. Never logs; the caller decides. Tracks `broadband_valid` and `fiber_valid` separately, sets aggregate `success` only when both pages contain recognized fields, and retains valid partial results.
 
 **`sentinel/src/notifier.py`** (219 lines) - MQTT client, HA auto-discovery, availability topics, CSV event log.
 
@@ -239,8 +239,9 @@ homeassistant/sensor/netsentinel_<key>/config    retained discovery payload
 
 `update_state` warns once per unknown key if you publish something with no discovery entry, which is how you catch a typo or a forgotten `DISCOVERY_SENSORS` addition.
 
-Sensors marked `"availability": True` are the numeric ones that can legitimately have no value.
-When the BGW620 probe fails, `_publish_modem_probe_metrics` flips them offline so Home Assistant hides them instead of showing a stale reading.
+Sensors marked `"availability": True` are values that can legitimately be unavailable, including the gateway timestamp.
+When a BGW620 page fails, `_publish_modem_probe_metrics` flips only its dependent sensors offline while publishing valid data from the other page.
+When the target is disabled, it publishes `disabled`, clears the retained text states, and marks all gateway measurements unavailable.
 That distinction matters: a hidden sensor and a sensor reporting last hour's optical power are very different during an outage.
 
 `RETIRED_DISCOVERY_KEYS` holds sensors that once existed. An empty retained payload is published to their config topic to delete them from HA. Add to this set when you remove a sensor; do not just delete the entry.
@@ -273,7 +274,8 @@ Publication is suppressed entirely while it is `None`, so a healthy gateway does
 ### HTTP checks have a hard deadline
 
 `requests`' own timeout does not cover DNS resolution, so during an outage an uncached lookup can block 20 seconds or more and stretch the whole cycle.
-`check_multi_http` bounds `as_completed` at `timeout + 1`, marks anything unfinished as failed, and calls `shutdown(wait=False)` so threads stuck in `getaddrinfo` are abandoned rather than waited on.
+`check_multi_http` uses one process-wide four-worker executor, bounds `as_completed` at `timeout + 1`, and marks every future not yielded by the deadline as failed.
+If any worker from the previous batch is still blocked, the next cycle reports the endpoints failed without submitting another batch.
 
 This is why detection latency stays bounded during exactly the event the system exists to catch.
 

@@ -11,6 +11,10 @@ import logging
 
 logger = logging.getLogger("Diagnostics")
 
+_HTTP_EXECUTOR = ThreadPoolExecutor(max_workers=4)
+_HTTP_BATCH_LOCK = threading.Lock()
+_HTTP_IN_FLIGHT = set()
+
 def check_interface_status(interface="eth0"):
     """
     Check if the physical network interface is UP.
@@ -273,13 +277,32 @@ def check_multi_http(endpoints=None, timeout=10.0):
     # Endpoints not finished by the deadline are treated as failed, and we do
     # not block on threads still stuck in getaddrinfo.
     deadline = timeout + 1
-    executor = ThreadPoolExecutor(max_workers=len(endpoints))
-    future_to_url = {
-        executor.submit(check_http, url, timeout): url
-        for url in endpoints
-    }
+    with _HTTP_BATCH_LOCK:
+        _HTTP_IN_FLIGHT.difference_update(
+            future for future in _HTTP_IN_FLIGHT if future.done()
+        )
+        if _HTTP_IN_FLIGHT:
+            logger.warning(
+                "Skipping HTTP check because the previous batch is still running"
+            )
+            return {
+                'success_count': 0,
+                'total': len(endpoints),
+                'failed_endpoints': list(endpoints),
+                'avg_latency': None,
+                'all_succeeded': False,
+            }
+
+        future_to_url = {
+            _HTTP_EXECUTOR.submit(check_http, url, timeout): url
+            for url in endpoints
+        }
+        _HTTP_IN_FLIGHT.update(future_to_url)
+
+    consumed = set()
     try:
         for future in as_completed(future_to_url, timeout=deadline):
+            consumed.add(future)
             url = future_to_url[future]
             try:
                 success, latency = future.result()
@@ -294,11 +317,15 @@ def check_multi_http(endpoints=None, timeout=10.0):
         pass
 
     for future, url in future_to_url.items():
-        if not future.done() and url not in failed:
+        if future not in consumed:
             logger.warning(f"HTTP check exceeded {deadline}s deadline: {url}")
             failed.append(url)
+            future.cancel()
 
-    executor.shutdown(wait=False)
+    with _HTTP_BATCH_LOCK:
+        _HTTP_IN_FLIGHT.difference_update(
+            future for future in future_to_url if future.done()
+        )
 
     return {
         'success_count': len(results),

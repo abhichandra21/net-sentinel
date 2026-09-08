@@ -31,8 +31,9 @@ _TEMP_RE = re.compile(r'<h1>Temperature[^<]*Currently\s+([0-9.]+)\s*</h1>')
 
 def _empty_result():
     return {
-        "success": False, "wan_state": None, "fiber_state": None,
-        "wan_ip": None, "last_change_seconds": None,
+        "success": False, "broadband_valid": False, "fiber_valid": False,
+        "wan_state": None, "fiber_state": None,
+        "wan_ip": None, "last_change_timestamp": None,
         "rx_power_uw": None, "tx_power_uw": None, "temp_c": None,
         "error": None,
     }
@@ -79,43 +80,50 @@ def probe_bgw620(host, timeout=5):
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         data = {"nonce": nonce}
 
-        bb_ok = False
         try:
             bb = session.post(
                 f"http://{host}/cgi-bin/broadbandstatistics.ha",
                 data=data, headers=headers, timeout=timeout)
             bb.raise_for_status()
-            result["wan_state"] = _normalize_state(
-                _search(_WAN_STATE_RE, bb.text))
-            result["wan_ip"] = _search(_WAN_IP_RE, bb.text)
-            bb_ok = True
+            wan_state = _normalize_state(_search(_WAN_STATE_RE, bb.text))
+            wan_ip = _search(_WAN_IP_RE, bb.text)
+            if wan_state is None and wan_ip is None:
+                raise ValueError("no recognized fields")
+            result["wan_state"] = wan_state
+            result["wan_ip"] = wan_ip
+            result["broadband_valid"] = True
         except Exception as e:
             result["error"] = f"broadbandstatistics: {e}"
 
-        fiber_ok = False
         try:
             fs = session.post(
                 f"http://{host}/cgi-bin/fiberstat.ha",
                 data=data, headers=headers, timeout=timeout)
             fs.raise_for_status()
-            result["fiber_state"] = _normalize_state(
-                _search(_FIBER_STATE_RE, fs.text))
-            result["last_change_seconds"] = _search(
-                _LAST_CHANGE_RE, fs.text, cast=int)
+            fiber_state = _normalize_state(_search(_FIBER_STATE_RE, fs.text))
+            last_change_timestamp = _search(_LAST_CHANGE_RE, fs.text, cast=int)
             rx = _search(_RX_POWER_RE, fs.text, cast=float)
             tx = _search(_TX_POWER_RE, fs.text, cast=float)
+            temp_c = _search(_TEMP_RE, fs.text, cast=float)
+            if all(value is None for value in (
+                    fiber_state, last_change_timestamp, rx, tx, temp_c)):
+                raise ValueError("no recognized fields")
+            result["fiber_state"] = fiber_state
+            result["last_change_timestamp"] = last_change_timestamp
             result["rx_power_uw"] = (
                 round(rx * _OPTICAL_TO_UW, 4) if rx is not None else None)
             result["tx_power_uw"] = (
                 round(tx * _OPTICAL_TO_UW, 4) if tx is not None else None)
-            result["temp_c"] = _search(_TEMP_RE, fs.text, cast=float)
-            fiber_ok = True
+            result["temp_c"] = temp_c
+            result["fiber_valid"] = True
         except Exception as e:
             msg = f"fiberstat: {e}"
             result["error"] = (
                 f"{result['error']}; {msg}" if result["error"] else msg)
 
-        result["success"] = bb_ok and fiber_ok
+        result["success"] = (
+            result["broadband_valid"] and result["fiber_valid"]
+        )
         return result
     except Exception as e:
         result["error"] = str(e)
