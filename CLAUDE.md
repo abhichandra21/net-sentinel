@@ -165,7 +165,7 @@ monitoring:
 
   targets:
     router: "192.168.1.1"
-    modem: null          # BGW620 LAN address, usually 192.168.1.254; enables ping + HTML probe
+    modem: null          # BGW620 LAN address 192.168.10.254; enables ping + HTML probe
     isp_gateway: null    # auto-detected at startup when null
     cloud_anchor: null   # our own VPS URL
     public_dns_1: "8.8.8.8"

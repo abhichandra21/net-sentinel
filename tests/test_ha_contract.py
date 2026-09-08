@@ -47,7 +47,8 @@ def test_setup_points_modem_target_at_the_bgw620():
     ):
         text = (ROOT / name).read_text()
         assert "BGW620" in text
-        assert "192.168.1.254" in text
+        assert "192.168.10.254" in text
+        assert "192.168.1.254" not in text
         assert "192.168.100.1" not in text
 
 

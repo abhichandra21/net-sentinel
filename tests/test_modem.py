@@ -47,17 +47,17 @@ def test_health_check_measures_configured_modem(monkeypatch):
 
     def ping(host, timeout=2.0):
         calls.append(host)
-        return {"192.168.1.1": 1.0, "192.168.1.254": 1.5}[host]
+        return {"192.168.1.1": 1.0, "192.168.10.254": 1.5}[host]
 
     monkeypatch.setattr(monitor, "check_ping", ping)
     results = monitor.perform_health_check({
         "router": "192.168.1.1",
-        "modem": "192.168.1.254",
+        "modem": "192.168.10.254",
     })
 
     assert results["modem_configured"] is True
     assert results["modem"] == 1.5
-    assert "192.168.1.254" in calls
+    assert "192.168.10.254" in calls
 
 
 def test_health_check_ignores_unconfigured_modem(monkeypatch):

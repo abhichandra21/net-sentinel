@@ -113,7 +113,7 @@ Net Sentinel provides **clear fault codes** so you know exactly who to call:
     monitoring:
       targets:
         router: "192.168.1.1"       # Your local router IP
-        modem: null                  # Set to your BGW620 LAN address, usually "192.168.1.254"
+        modem: null                  # Set to your BGW620 LAN address: "192.168.10.254"
         isp_gateway: "100.64.0.1"   # ISP Gateway (find via 'traceroute 8.8.8.8')
         public_dns_1: "8.8.8.8"     # Primary DNS resolver to test
         public_dns_2: "1.1.1.1"     # Optional secondary DNS resolver

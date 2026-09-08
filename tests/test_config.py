@@ -60,4 +60,4 @@ def test_example_config_exposes_opt_in_modem_target():
     assert "modem" in config["monitoring"]["targets"]
     assert config["monitoring"]["targets"]["modem"] is None
     assert "BGW620" in config_text
-    assert "192.168.1.254" in config_text
+    assert "192.168.10.254" in config_text
