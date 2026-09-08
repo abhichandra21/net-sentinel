@@ -159,7 +159,7 @@ See `ha_comprehensive_setup.yaml` for a ready-to-use configuration.
    Create or edit `mqtt.yaml` in your HA config directory (see `ha_comprehensive_setup.yaml` for full config).
 
 2. **Add Dashboard**
-   The dashboard is not in this repo. See "Dashboard" below.
+   Run `homeassistant/deploy_dashboard.py all`. See "Dashboard" below.
 
 3. **Restart Home Assistant**
    ```bash
@@ -209,18 +209,36 @@ The Cloud Probe monitors your home from **outside**, detecting issues with publi
 
 ## 📊 Dashboard
 
-The dashboard is **not in this repo**. It is a storage-mode Lovelace dashboard at
-`/net-sentinel`, and its editable source lives in the Home Assistant config repo:
+The dashboard lives here, under `homeassistant/`:
 
-- `lovelace/dashboards/network_monitoring.yaml` - the dashboard source
-- `themes/net-sentinel/net-sentinel.yaml` - the colour theme it needs
+```
+homeassistant/
+  dashboards/net_sentinel.yaml   the dashboard (source of truth)
+  themes/net-sentinel.yaml       the colours it styles itself with
+  deploy_dashboard.py            pushes both to Home Assistant
+```
 
-Storage mode means Home Assistant does not read that YAML file; it is deployed
-through the `lovelace/config/save` websocket command. Editing the file alone
-changes nothing until you deploy it.
+Deploy it:
 
-This repo used to carry two copies of an older dashboard. Both drifted from the
-live one for months, so they were removed and a test now keeps them out.
+```bash
+export HA_TOKEN=...                        # long-lived access token
+homeassistant/deploy_dashboard.py all      # theme + dashboard
+homeassistant/deploy_dashboard.py get live.yaml   # pull the live config back
+```
+
+**Editing the YAML alone changes nothing.** `/net-sentinel` is a *storage-mode*
+dashboard, so Home Assistant reads `.storage/lovelace.net_sentinel` and never
+reads a YAML file. The deploy script pushes the config over the
+`lovelace/config/save` websocket command, which takes effect immediately and
+needs no restart. The theme is different: it is a real file HA does read, so it
+is scp'd into `<config>/themes/` and the frontend is told to reload.
+
+Because HA owns the live copy, someone can edit the dashboard in the UI and
+diverge from this file. `deploy_dashboard.py get` is how you check.
+
+This repo previously carried two *other* dashboard YAMLs that nothing read and
+that drifted for months. They are gone, and a test keeps them from returning:
+there is one source now.
 
 Three views:
 

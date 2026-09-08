@@ -254,11 +254,30 @@ YAML files in the repo are reference copies of what lives in Home Assistant, not
 
 `tests/test_ha_contract.py` and `tests/test_discovery.py` check that published keys and these YAML files agree. If you add a sensor and those fail, the YAML is what is out of date.
 
-### The dashboard is not in this repo
+### The dashboard
 
-The Lovelace dashboard is a **storage-mode** dashboard at `/net-sentinel`, so Home Assistant reads `.storage/lovelace.net_sentinel`, not any YAML file. Its editable source lives in the Home Assistant config repo as `lovelace/dashboards/network_monitoring.yaml`, alongside the `themes/net-sentinel` theme it depends on, and is deployed with the `lovelace/config/save` websocket command.
+`homeassistant/` holds the dashboard and everything needed to ship it:
 
-Two stale copies (`ha_dashboard.yaml` and `config/network_monitoring_dashboard.yaml`) used to live here and drifted from the live dashboard for months. They were deleted, and `test_no_stale_dashboard_copies_are_reintroduced` keeps them from coming back. Do not add a dashboard copy to this repo; there is nothing here that can verify it against the real one.
+| Path | What |
+|---|---|
+| `homeassistant/dashboards/net_sentinel.yaml` | the dashboard, source of truth |
+| `homeassistant/themes/net-sentinel.yaml` | the `--ns-*` colours it styles itself with |
+| `homeassistant/deploy_dashboard.py` | pushes both; `save`, `theme`, `all`, `get` |
+
+**Home Assistant does not read the dashboard YAML.** `/net-sentinel` is a storage-mode dashboard, so HA reads `.storage/lovelace.net_sentinel`. Editing the YAML changes nothing until `deploy_dashboard.py` pushes it over the `lovelace/config/save` websocket command. The theme is the opposite: a real file HA reads, so it is scp'd to `<config>/themes/` and the frontend is reloaded.
+
+HA owns the live copy, so a UI edit can diverge from the file. `deploy_dashboard.py get` pulls the live config back to compare.
+
+Two earlier copies (`ha_dashboard.yaml`, `config/network_monitoring_dashboard.yaml`) described a view that never existed and drifted for months. They are deleted and `test_only_one_dashboard_copy_exists` keeps them out. One source.
+
+Things about the dashboard that will bite you, all also noted in the file header:
+
+- **The markdown sanitizer strips `class=` and `style=`.** Content is styled by element selector through card-mod's `ha-markdown$` pierce, with bare selectors (`h4`, `td`, `code`) - `ha-card` is not an ancestor inside that shadow root. Per-value colour therefore rides on wrapper elements chosen in Jinja: `` `code` `` cyan, `*em*` amber, `**strong**` red, `~~del~~` slate.
+- **Use `content: |`, never `>-`.** Folded scalars eat the newlines that markdown tables and headings need.
+- **Every table needs a real header row**, which CSS then hides. Markdown requires the separator on line 2, so dropping the header row silently eats your first data row.
+- **The theme must declare `card-mod-theme`.** Without it card-mod races the first render and styles intermittently fail to apply. The `card-mod-*-yaml` variants threw during init here, so do not add them.
+- **`column_span` does not widen a section** in this HA version; it just reserves empty columns. The Live view relies on `dense_section_placement` instead.
+- **Chart series colours are literal hex**, not theme variables: ApexCharts draws to canvas and cannot resolve CSS variables.
 
 ## Implementation details worth knowing
 
@@ -361,7 +380,7 @@ Real, known, and not worth fixing as a drive-by:
 2. Add a human-readable line to the `details` dict in `diagnose_issue`.
 3. Decide severity. Membership in `degraded_codes` selects `WARNING`/`DEGRADED` over `CRITICAL`/`OUTAGE`.
 4. Extend `tests/test_classify.py`, including a case proving the new rule does not steal from an existing one.
-5. Update `ha_automation_alerts.yaml` if it needs to be alertable, and the verdict card's `remedy` map in the Home Assistant repo's `lovelace/dashboards/network_monitoring.yaml` if an operator needs to see what to do about it. A code with no `remedy` entry falls back to generic advice.
+5. Add the code to the verdict card's `remedy` map in `homeassistant/dashboards/net_sentinel.yaml`, and to `ha_automation_alerts.yaml` if it should alert. A code with no `remedy` entry falls back to generic advice during a real outage. `test_new_fault_codes_are_documented_and_alerted` enforces the dashboard half; add the code to its tuple.
 6. Update the table in this file and in `README.md`.
 
 ### Changing intervals or thresholds
