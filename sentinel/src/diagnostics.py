@@ -5,7 +5,7 @@ import statistics
 import threading
 import dns.resolver
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 from ping3 import ping
 import logging
 
@@ -267,14 +267,19 @@ def check_multi_http(endpoints=None, timeout=10.0):
     results = []
     failed = []
 
-    # Run all HTTP checks in parallel
-    with ThreadPoolExecutor(max_workers=len(endpoints)) as executor:
-        future_to_url = {
-            executor.submit(check_http, url, timeout): url
-            for url in endpoints
-        }
-
-        for future in as_completed(future_to_url):
+    # Run all HTTP checks in parallel, bounded by a hard wall-clock deadline.
+    # requests' own timeout does not cover DNS name resolution, so an uncached
+    # lookup can stall ~20s+ during an outage and stretch the whole cycle.
+    # Endpoints not finished by the deadline are treated as failed, and we do
+    # not block on threads still stuck in getaddrinfo.
+    deadline = timeout + 1
+    executor = ThreadPoolExecutor(max_workers=len(endpoints))
+    future_to_url = {
+        executor.submit(check_http, url, timeout): url
+        for url in endpoints
+    }
+    try:
+        for future in as_completed(future_to_url, timeout=deadline):
             url = future_to_url[future]
             try:
                 success, latency = future.result()
@@ -285,6 +290,15 @@ def check_multi_http(endpoints=None, timeout=10.0):
             except Exception as e:
                 logger.error(f"HTTP check exception for {url}: {e}")
                 failed.append(url)
+    except FuturesTimeoutError:
+        pass
+
+    for future, url in future_to_url.items():
+        if not future.done() and url not in failed:
+            logger.warning(f"HTTP check exceeded {deadline}s deadline: {url}")
+            failed.append(url)
+
+    executor.shutdown(wait=False)
 
     return {
         'success_count': len(results),
