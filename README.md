@@ -31,8 +31,8 @@ Net Sentinel provides **clear fault codes** so you know exactly who to call:
 | `ROUTER_CRITICAL`   | Router health < 30/100       | 🔧 **Reboot router or replace**        |
 | `ROUTER_DEGRADED`   | Router health 30-60/100      | 🔧 **Check router load/performance**   |
 | `ROUTER_DOWN`       | Router not responding        | 🔧 **Check power and cables**          |
-| `MODEM_DOWN` | Router is up, while the configured modem, ISP first hop, DNS, and HTTP checks all fail | 🔧 Check modem power and coax; then contact ISP |
-| `LASTMILE_RF_SUSPECT` | ISP first hop and public checks fail, but direct modem evidence does not prove the modem is down | 📞 Capture evidence and contact ISP |
+| `MODEM_DOWN` | Router is up, while the configured modem, ISP first hop, DNS, and HTTP checks all fail | 🔧 Check gateway power and fiber cable; then contact ISP |
+| `LASTMILE_FIBER_SUSPECT` | ISP first hop and public checks fail, but direct gateway evidence does not prove the gateway is down | 📞 Capture evidence and contact ISP |
 | `ISP_INGRESS_CONGEST` | ISP first hop is reachable but abnormally slow | 📞 Contact ISP with first-hop latency |
 | `ISP_CORE_ROUTING` | First hop works but DNS, HTTP, and anchor corroborate upstream failure | 📞 Contact ISP with trace evidence |
 | `DEGRADED_UNDER_LOAD` | Latency or packet loss rises beyond configured load thresholds | 🔧 Review router QoS, then ISP capacity |

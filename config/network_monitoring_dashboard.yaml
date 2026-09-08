@@ -172,8 +172,9 @@ cards:
             - `ROUTER_CRITICAL` → Router hardware failing (reboot/replace)
             - `ROUTER_DEGRADED` → Router overloaded (check device count)
             - `ROUTER_DOWN` → Router not responding (check power/cables)
-            - `MODEM_DOWN` → Direct modem failure corroborated by first-hop and public checks (check power/coax)
-            - `LASTMILE_RF_SUSPECT` → Inferred modem/RF path failure (contact ISP with evidence)
+            - `FIBER_LINK_DOWN` → BGW620 directly reports optical WAN is down (check fiber cable/ONT)
+            - `MODEM_DOWN` → Direct gateway failure corroborated by first-hop and public checks (check power/fiber)
+            - `LASTMILE_FIBER_SUSPECT` → Inferred fiber uplink or last-mile failure (contact ISP with evidence)
             - `ISP_INGRESS_CONGEST` → ISP first hop is abnormally slow (contact ISP)
             - `ISP_CORE_ROUTING` → First hop works but corroborated upstream paths fail (contact ISP)
             - `ISP_DNS` → ISP DNS servers down (call ISP)
@@ -195,6 +196,64 @@ cards:
             - entity: sensor.internet_modem_latency
               name: Modem Latency
               icon: mdi:timer-outline
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # BGW620 GATEWAY - AT&T Fiber gateway direct observation
+  # ═══════════════════════════════════════════════════════════════════════════
+  - type: custom:mushroom-title-card
+    title: BGW620 Gateway
+    subtitle: AT&T Fiber Direct Observation
+
+  - type: grid
+    columns: 4
+    cards:
+      - type: custom:mushroom-entity-card
+        entity: sensor.gateway_fiber_state
+        name: Fiber
+        icon: mdi:fiber-node
+        icon_color: |-
+          {% if states('sensor.gateway_fiber_state') == 'up' %}green{% elif states('sensor.gateway_fiber_state') == 'down' %}red{% else %}grey{% endif %}
+        primary_info: state
+        secondary_info: name
+
+      - type: custom:mushroom-entity-card
+        entity: sensor.gateway_wan_state
+        name: WAN
+        icon: mdi:wan
+        icon_color: |-
+          {% if states('sensor.gateway_wan_state') == 'up' %}green{% elif states('sensor.gateway_wan_state') == 'down' %}red{% else %}grey{% endif %}
+        primary_info: state
+        secondary_info: name
+
+      - type: custom:mushroom-entity-card
+        entity: sensor.gateway_wan_ip
+        name: WAN IP
+        icon: mdi:ip
+        icon_color: blue
+        primary_info: state
+        secondary_info: name
+
+      - type: custom:mushroom-entity-card
+        entity: sensor.gateway_rx_power_uw
+        name: Rx Power
+        icon: mdi:signal
+        icon_color: amber
+        primary_info: state
+        secondary_info: name
+
+  - type: entities
+    title: Optical Transceiver
+    entities:
+      - entity: sensor.gateway_tx_power_uw
+        name: Tx Power (uW)
+      - entity: sensor.gateway_rx_power_uw
+        name: Rx Power (uW)
+      - entity: sensor.gateway_temp_c
+        name: Transceiver Temperature
+      - entity: sensor.gateway_last_change_seconds
+        name: Optical Link Last Change
+      - entity: sensor.gateway_probe_status
+        name: Probe Status
 
   # ═══════════════════════════════════════════════════════════════════════════
   # SPEED PERFORMANCE - Download speeds and throughput

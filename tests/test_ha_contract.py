@@ -10,7 +10,7 @@ def test_new_fault_codes_are_documented_and_alerted():
     dashboard = (ROOT / "ha_dashboard.yaml").read_text()
     for code in (
         "MODEM_DOWN",
-        "LASTMILE_RF_SUSPECT",
+        "LASTMILE_FIBER_SUSPECT",
         "ISP_INGRESS_CONGEST",
         "ISP_CORE_ROUTING",
     ):

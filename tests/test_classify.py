@@ -32,7 +32,7 @@ def test_gateway_down_with_corroborating_failures_is_lastmile_suspect():
         gw=None, dns_ok=False, http_ok=False, anchor=(False, None),
     )
     code, confidence = classify_connectivity(results)
-    assert code == "LASTMILE_RF_SUSPECT"
+    assert code == "LASTMILE_FIBER_SUSPECT"
     assert confidence >= 0.7
 
 
@@ -105,7 +105,7 @@ def test_reachable_modem_and_failed_gateway_remains_lastmile_suspect():
         anchor=(False, None),
     ))
 
-    assert code == "LASTMILE_RF_SUSPECT"
+    assert code == "LASTMILE_FIBER_SUSPECT"
 
 
 def test_healthy_anchor_prevents_modem_down_attribution():
@@ -119,3 +119,56 @@ def test_healthy_anchor_prevents_modem_down_attribution():
     ))
 
     assert code == "DEGRADED_INTERNET"
+
+
+def test_fiber_link_down_probe_takes_precedence_over_modem_down():
+    results = _results(
+        modem=None,
+        modem_configured=True,
+        gw=None,
+        dns_ok=False,
+        http_ok=False,
+        anchor=(False, None),
+    )
+    results["modem_probe"] = {"success": True, "fiber_state": "down"}
+
+    code, confidence = classify_connectivity(results)
+
+    assert code == "FIBER_LINK_DOWN"
+    assert confidence >= 0.95
+    assert requires_diagnosis(results) is True
+
+
+def test_fiber_link_down_probe_takes_precedence_over_lastmile_suspect():
+    results = _results(
+        gw=None, dns_ok=False, http_ok=False, anchor=(False, None),
+    )
+    results["modem_probe"] = {"success": True, "fiber_state": "down"}
+
+    code, _ = classify_connectivity(results)
+
+    assert code == "FIBER_LINK_DOWN"
+
+
+def test_failed_probe_falls_back_to_inferred_attribution():
+    results = _results(
+        gw=None, dns_ok=False, http_ok=False, anchor=(False, None),
+    )
+    results["modem_probe"] = {
+        "success": False, "fiber_state": None, "error": "timeout",
+    }
+
+    code, _ = classify_connectivity(results)
+
+    assert code == "LASTMILE_FIBER_SUSPECT"
+
+
+def test_fiber_up_probe_does_not_override_other_faults():
+    results = _results(
+        gw=None, dns_ok=False, http_ok=False, anchor=(False, None),
+    )
+    results["modem_probe"] = {"success": True, "fiber_state": "up"}
+
+    code, _ = classify_connectivity(results)
+
+    assert code == "LASTMILE_FIBER_SUSPECT"

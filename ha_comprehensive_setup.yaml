@@ -25,8 +25,9 @@ mqtt:
       # - ROUTER_CRITICAL (router health < 30/100)
       # - ROUTER_DEGRADED (router health < 60/100)
       # - ROUTER_DOWN (router not responding)
-      # - MODEM_DOWN (direct modem failure corroborated by gateway + public checks)
-      # - LASTMILE_RF_SUSPECT (first-hop/last-mile failure without proof modem is down)
+      # - FIBER_LINK_DOWN (BGW620 directly reports optical WAN is down)
+      # - MODEM_DOWN (fiber gateway unreachable while router is up)
+      # - LASTMILE_FIBER_SUSPECT (first-hop/last-mile failure without proof gateway is down)
       # - ISP_INGRESS_CONGEST (slow ISP first hop)
       # - ISP_CORE_ROUTING (upstream ISP routing failure)
       # - ISP_DNS (ISP DNS servers down)
@@ -85,6 +86,73 @@ mqtt:
       icon: mdi:modem
       device_class: duration
       unique_id: internet_modem_latency
+
+    # ============================================================================
+    # BGW620 GATEWAY DIRECT OBSERVATION (fiber ONT scrape)
+    # ============================================================================
+    - name: "Gateway WAN State"
+      state_topic: "home/network/sentinel/modem_wan_state/state"
+      icon: mdi:wan
+      unique_id: gateway_wan_state
+      # Values: up, down, UNAVAILABLE
+
+    - name: "Gateway Fiber State"
+      state_topic: "home/network/sentinel/modem_fiber_state/state"
+      icon: mdi:fiber-node
+      unique_id: gateway_fiber_state
+      # Values: up, down, UNAVAILABLE
+
+    - name: "Gateway WAN IP"
+      state_topic: "home/network/sentinel/modem_wan_ip/state"
+      icon: mdi:ip
+      unique_id: gateway_wan_ip
+
+    - name: "Gateway Rx Power"
+      state_topic: "home/network/sentinel/modem_rx_power_uw/state"
+      availability_topic: "home/network/sentinel/modem_rx_power_uw/availability"
+      payload_available: "online"
+      payload_not_available: "offline"
+      unit_of_measurement: "uW"
+      icon: mdi:signal
+      state_class: measurement
+      unique_id: gateway_rx_power_uw
+
+    - name: "Gateway Tx Power"
+      state_topic: "home/network/sentinel/modem_tx_power_uw/state"
+      availability_topic: "home/network/sentinel/modem_tx_power_uw/availability"
+      payload_available: "online"
+      payload_not_available: "offline"
+      unit_of_measurement: "uW"
+      icon: mdi:signal-variant
+      state_class: measurement
+      unique_id: gateway_tx_power_uw
+
+    - name: "Gateway Transceiver Temperature"
+      state_topic: "home/network/sentinel/modem_temp_c/state"
+      availability_topic: "home/network/sentinel/modem_temp_c/availability"
+      payload_available: "online"
+      payload_not_available: "offline"
+      unit_of_measurement: "°C"
+      icon: mdi:thermometer
+      device_class: temperature
+      state_class: measurement
+      unique_id: gateway_temp_c
+
+    - name: "Gateway Optical Last Change"
+      state_topic: "home/network/sentinel/modem_last_change_seconds/state"
+      availability_topic: "home/network/sentinel/modem_last_change_seconds/availability"
+      payload_available: "online"
+      payload_not_available: "offline"
+      unit_of_measurement: "s"
+      icon: mdi:timer-sand
+      state_class: measurement
+      unique_id: gateway_last_change_seconds
+
+    - name: "Gateway Probe Status"
+      state_topic: "home/network/sentinel/modem_probe_status/state"
+      icon: mdi:cog-sync
+      unique_id: gateway_probe_status
+      # Values: ok, failed
 
     - name: "Internet Router Latency"
       state_topic: "home/network/sentinel/router_latency/state"
@@ -202,7 +270,10 @@ automation:
         to: "ISP_ROUTING"
       - platform: state
         entity_id: sensor.internet_fault_blame
-        to: "LASTMILE_RF_SUSPECT"
+        to: "LASTMILE_FIBER_SUSPECT"
+      - platform: state
+        entity_id: sensor.internet_fault_blame
+        to: "FIBER_LINK_DOWN"
       - platform: state
         entity_id: sensor.internet_fault_blame
         to: "ISP_INGRESS_CONGEST"

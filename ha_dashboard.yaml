@@ -90,10 +90,12 @@ cards:
             {% set blame = states('sensor.internet_fault_blame') %}
             {% if 'ROUTER' in blame %}
             🔧 **Action:** Check router - reboot or contact support
+            {% elif blame == 'FIBER_LINK_DOWN' %}
+            📞 **Action:** Gateway reports optical WAN is down — check fiber cable/ONT and contact ISP with the failure time
             {% elif blame == 'MODEM_DOWN' %}
-            🔧 **Action:** Check modem power and coax. If both are secure, contact your ISP with the failure time.
+            🔧 **Action:** Check gateway power and fiber cable. If both are secure, contact your ISP with the failure time.
             {% elif 'LASTMILE' in blame %}
-            📞 **Action:** Suspected modem/RF path failure — capture evidence and contact your ISP
+            📞 **Action:** Suspected fiber uplink or last-mile failure — capture evidence and contact your ISP
             {% elif 'ISP' in blame %}
             📞 **Action:** Contact your Internet Service Provider
             {% elif 'DEGRADED' in blame %}
@@ -108,6 +110,41 @@ cards:
               name: Modem Status
             - entity: sensor.internet_modem_latency
               name: Modem Latency
+  - type: custom:mushroom-title-card
+    title: BGW620 Status
+    subtitle: AT&T Fiber Gateway
+  - type: horizontal-stack
+    cards:
+      - type: custom:mushroom-entity-card
+        entity: sensor.gateway_fiber_state
+        name: Fiber
+        icon: mdi:fiber-node
+        icon_color: |-
+          {% if states('sensor.gateway_fiber_state') == 'up' %}green{% elif states('sensor.gateway_fiber_state') == 'down' %}red{% else %}grey{% endif %}
+        primary_info: state
+        secondary_info: name
+      - type: custom:mushroom-entity-card
+        entity: sensor.gateway_wan_state
+        name: WAN
+        icon: mdi:wan
+        icon_color: |-
+          {% if states('sensor.gateway_wan_state') == 'up' %}green{% elif states('sensor.gateway_wan_state') == 'down' %}red{% else %}grey{% endif %}
+        primary_info: state
+        secondary_info: name
+      - type: custom:mushroom-entity-card
+        entity: sensor.gateway_wan_ip
+        name: WAN IP
+        icon: mdi:ip
+        icon_color: blue
+        primary_info: state
+        secondary_info: name
+      - type: custom:mushroom-entity-card
+        entity: sensor.gateway_rx_power_uw
+        name: Rx Power
+        icon: mdi:signal
+        icon_color: amber
+        primary_info: state
+        secondary_info: name
   - type: custom:mushroom-title-card
     title: Performance
     subtitle: Speed & Throughput

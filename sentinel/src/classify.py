@@ -18,6 +18,12 @@ def outage_confidence(results):
 def classify_connectivity(results, ingress_latency_ms=120):
     if results.get("router") is None:
         return (None, outage_confidence(results))
+    # Direct observation from the modem trumps inferred fault attribution:
+    # if the BGW620 itself reports the optical link is down, we know exactly
+    # where the fault is, regardless of what DNS/HTTP/gateway probes show.
+    probe = results.get("modem_probe")
+    if probe and probe.get("success") and probe.get("fiber_state") == "down":
+        return ("FIBER_LINK_DOWN", 0.95)
     dns_ok = results.get("dns", {}).get("all_succeeded", True)
     http_ok = results.get("http", {}).get("all_succeeded", True)
     internet_down = not dns_ok and not http_ok
@@ -39,7 +45,7 @@ def classify_connectivity(results, ingress_latency_ms=120):
     if modem_down and gateway is None and internet_down and anchor_supports_outage:
         return ("MODEM_DOWN", max(0.9, confidence))
     if gateway is None and internet_down and anchor_supports_outage:
-        return ("LASTMILE_RF_SUSPECT", max(0.7, confidence))
+        return ("LASTMILE_FIBER_SUSPECT", max(0.7, confidence))
     if gateway is not None and gateway > ingress_latency_ms:
         return ("ISP_INGRESS_CONGEST", max(0.6, confidence))
     if gateway is not None and internet_down and anchor_supports_outage:

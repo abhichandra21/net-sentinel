@@ -9,6 +9,9 @@ PUBLISHED_KEYS = {
     "isp_gateway_latency", "bufferbloat_ms", "loaded_loss_pct",
     "load_quality_status", "load_fault_detail", "modem_status",
     "modem_latency",
+    "modem_wan_state", "modem_fiber_state", "modem_wan_ip",
+    "modem_rx_power_uw", "modem_tx_power_uw", "modem_temp_c",
+    "modem_last_change_seconds", "modem_probe_status",
 }
 
 
