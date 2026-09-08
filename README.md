@@ -9,7 +9,7 @@ The system consists of two independent components that report to **Home Assistan
 1.  **Local Sentinel (Docker)**:
     *   Runs on your home network (Raspberry Pi, NAS, Server).
     *   Monitors: Router Health → BGW620 Fiber Gateway (optional) → ISP Gateway → Public DNS → Website Reachability.
-    *   Checks: Ping latency, packet loss, jitter, DNS resolution, periodic Speedtests.
+    *   Checks: Ping latency, packet loss, jitter, DNS resolution, HTTP reachability.
     *   Reporting: **MQTT** with Auto-Discovery.
     *   *Diagnoses if the issue is your Router, Modem, or ISP with detailed health scoring.*
 
@@ -35,7 +35,6 @@ Net Sentinel provides **clear fault codes** so you know exactly who to call:
 | `LASTMILE_FIBER_SUSPECT` | ISP first hop and public checks fail, but direct gateway evidence does not prove the gateway is down | 📞 Capture evidence and contact ISP |
 | `ISP_INGRESS_CONGEST` | ISP first hop is reachable but abnormally slow | 📞 Contact ISP with first-hop latency |
 | `ISP_CORE_ROUTING` | First hop works but DNS, HTTP, and anchor corroborate upstream failure | 📞 Contact ISP with trace evidence |
-| `DEGRADED_UNDER_LOAD` | Latency or packet loss rises beyond configured load thresholds | 🔧 Review router QoS, then ISP capacity |
 | `ISP_DNS`           | ISP DNS servers failing      | 📞 **Call ISP - DNS issue**            |
 | `ISP_ROUTING`       | ISP routing problem          | 📞 **Call ISP - routing issue**        |
 | `DEGRADED_DNS`      | Partial DNS failures         | ⏳ Monitor - may auto-resolve          |
@@ -74,13 +73,21 @@ Net Sentinel provides **clear fault codes** so you know exactly who to call:
 - **`sensor.internet_dns_success_rate`**: Format "4/4" (successful/total)
 - **`sensor.internet_http_success_rate`**: Format "4/4" (successful/total)
 
-### Speed Test & Load Quality
-- **`sensor.internet_download_speed`**: Download bandwidth in Mbit/s
-- **`sensor.internet_idle_latency`**: Idle ICMP RTT measured alongside the speed test
-- **`sensor.internet_load_quality_status`**: `HEALTHY`, `DEGRADED_UNDER_LOAD`, or `UNAVAILABLE`
-- **`sensor.internet_bufferbloat`**: Added RTT in milliseconds while the download load is active
-- **`sensor.internet_loaded_loss`**: ICMP packet-loss percentage while the download load is active
-- **`sensor.internet_load_quality_detail`**: Threshold inputs and confidence for the latest load test
+### Throughput
+
+The sentinel does not measure throughput. It runs on a Raspberry Pi 4, which
+has no AES hardware acceleration, so a single TLS stream is capped near
+250 Mbps by software crypto: its old speedtest reported ~213 Mbps on a line
+that delivers 690 down and 904 up. It was measuring the Pi, not the internet.
+
+Throughput comes from the Cloudflare Speed Test integration running on Home
+Assistant itself, and the dashboard reads
+`sensor.cloudflare_speed_test_90th_percentile_down` / `_up`.
+
+The load classifier was dropped for the same reason: bufferbloat was measured
+by generating load from the Pi, and a host that caps near 345 Mbps cannot
+saturate a 700 Mbps uplink, so `DEGRADED_UNDER_LOAD` could never fire
+honestly.
 
 ### Cloud Probe
 - **`input_boolean.cloud_probe_status`**: Is HA reachable from internet?

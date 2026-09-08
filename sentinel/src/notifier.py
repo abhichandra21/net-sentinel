@@ -21,13 +21,6 @@ class Notifier:
         "http_latency": {"name": "HTTP Latency", "unit_of_measurement": "ms", "icon": "mdi:web-clock", "state_class": "measurement"},
         "http_success_rate": {"name": "HTTP Success Rate", "icon": "mdi:web-check"},
         "jitter": {"name": "Connection Jitter", "unit_of_measurement": "ms", "icon": "mdi:sine-wave", "state_class": "measurement"},
-        "download_speed": {"name": "Download Speed", "unit_of_measurement": "Mbps", "icon": "mdi:download", "state_class": "measurement"},
-        "upload_speed": {"name": "Upload Speed", "unit_of_measurement": "Mbps", "icon": "mdi:upload", "state_class": "measurement"},
-        "bufferbloat_ms": {"name": "Bufferbloat", "unit_of_measurement": "ms", "icon": "mdi:water", "state_class": "measurement"},
-        "loaded_loss_pct": {"name": "Loaded Packet Loss", "unit_of_measurement": "%", "icon": "mdi:close-network", "state_class": "measurement"},
-        "load_quality_status": {"name": "Load Quality Status", "icon": "mdi:speedometer-slow"},
-        "load_fault_detail": {"name": "Load Quality Detail", "icon": "mdi:information"},
-        "idle_latency": {"name": "Idle Latency", "unit_of_measurement": "ms", "icon": "mdi:speedometer", "state_class": "measurement"},
         "isp_gateway_latency": {
             "name": "ISP First-Hop Latency",
             "unit_of_measurement": "ms",
@@ -91,10 +84,29 @@ class Notifier:
         },
     }
 
+    # Retired sensors. An empty retained payload is published to each config
+    # topic so Home Assistant deletes the entity instead of showing the last
+    # retained value forever. Never just drop a DISCOVERY_SENSORS entry.
+    #
+    # The throughput and load-quality sensors were retired because the sentinel
+    # runs on a Raspberry Pi 4, which has no AES hardware acceleration: a single
+    # TLS stream tops out near 250 Mbps, so its "download speed" measured the
+    # Pi's crypto ceiling rather than the line (213 Mbps against a real 690).
+    # Worse, the bufferbloat probe generated load from that same host, so it
+    # could never saturate a ~700 Mbps uplink and DEGRADED_UNDER_LOAD could not
+    # fire honestly. Throughput now comes from the Cloudflare Speed Test
+    # integration running on the Home Assistant box.
     RETIRED_DISCOVERY_KEYS = {
         "internet_latency",
         "speedtest_latency",
         "modem_last_change_seconds",
+        "download_speed",
+        "upload_speed",
+        "idle_latency",
+        "bufferbloat_ms",
+        "loaded_loss_pct",
+        "load_quality_status",
+        "load_fault_detail",
     }
 
     def __init__(self, config):

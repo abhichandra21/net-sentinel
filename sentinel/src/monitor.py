@@ -3,16 +3,14 @@ import yaml
 import logging
 import sys
 import os
-import schedule
 from collections import deque
 from datetime import datetime, timezone
 from diagnostics import (
     check_ping, check_dns, check_http, check_multi_dns, check_multi_http,
-    run_traceroute, check_interface_status, run_speedtest,
-    run_cloudflare_speedtest, calculate_jitter, check_router_health,
-    detect_isp_gateway, measure_bufferbloat
+    run_traceroute, check_interface_status, calculate_jitter,
+    check_router_health, detect_isp_gateway
 )
-from classify import classify_connectivity, requires_diagnosis, classify_load
+from classify import classify_connectivity, requires_diagnosis
 from modem_probe import probe_bgw620
 from notifier import Notifier
 
@@ -268,55 +266,6 @@ def _publish_modem_probe_metrics(notifier, probe, enabled=True):
         for key in _MODEM_FIBER_SENSORS:
             notifier.update_availability(key, False)
 
-def perform_speedtest(notifier, targets, speedtest_config=None, thresholds=None):
-    """Measure throughput, then independently measure and classify load quality."""
-    speedtest_config = speedtest_config or {}
-    thresholds = thresholds or {}
-    use_cloudflare = speedtest_config.get('use_cloudflare', True)
-    logger.info("Running scheduled speedtest...")
-
-    cloudflare_result = run_cloudflare_speedtest() if use_cloudflare else None
-    if cloudflare_result:
-        notifier.update_state('download_speed', cloudflare_result['download_mbps'])
-        if cloudflare_result['latency_ms'] is not None:
-            notifier.update_state('idle_latency', cloudflare_result['latency_ms'])
-    else:
-        output = run_speedtest()
-        if output:
-            try:
-                lines = output.splitlines()
-                notifier.update_state('download_speed', lines[1].split(' ')[1])
-                notifier.update_state('upload_speed', lines[2].split(' ')[1])
-            except Exception as e:
-                logger.error(f"Failed to parse speedtest output: {e}")
-
-    load_target = targets.get('isp_gateway') or '8.8.8.8'
-    load_result = measure_bufferbloat(load_target)
-    if load_result is None:
-        notifier.update_state('load_quality_status', 'UNAVAILABLE')
-        notifier.update_state('load_fault_detail', 'Load generator or idle RTT unavailable')
-        return
-
-    if load_result['bloat_ms'] is not None:
-        notifier.update_state('bufferbloat_ms', load_result['bloat_ms'])
-    notifier.update_state('loaded_loss_pct', load_result['loaded_loss_pct'])
-
-    code, confidence = classify_load(
-        load_result,
-        bloat_threshold_ms=thresholds.get('bufferbloat_ms', 50),
-        loaded_loss_threshold_pct=thresholds.get('loaded_loss_pct', 5),
-    )
-    status = code or 'HEALTHY'
-    detail = (
-        f"bloat={load_result['bloat_ms']}ms, "
-        f"loaded_loss={load_result['loaded_loss_pct']}%, "
-        f"confidence={confidence:.2f}"
-    )
-    notifier.update_state('load_quality_status', status)
-    notifier.update_state('load_fault_detail', detail)
-    if code:
-        notifier.log_event('DEGRADED', 'LoadQuality', detail, 'WARNING')
-
 def diagnose_issue(targets, results, notifier, ingress_latency_ms=120,
                    jitter_threshold_ms=50):
     """
@@ -548,16 +497,6 @@ def main():
     ingress_latency_ms = thresholds.get('ingress_latency_ms', 120)
     jitter_threshold_ms = thresholds.get('jitter_ms', 50)
 
-    speedtest_config = config['monitoring'].get('speedtest', {})
-    speedtest_interval_hours = speedtest_config.get('interval_hours', 6)
-    schedule.every(speedtest_interval_hours).hours.do(
-        perform_speedtest,
-        notifier=notifier,
-        targets=targets,
-        speedtest_config=speedtest_config,
-        thresholds=thresholds,
-    )
-
     logger.info("Network Sentinel Started.")
     logger.info(f"Configuration: interval={interval}s, failure_interval={failure_interval}s, DNS timeout={dns_timeout}s, HTTP timeout={http_timeout}s, Failure threshold={consecutive_failures_threshold}")
     if notifier.connected:
@@ -570,9 +509,6 @@ def main():
 
     while True:
         try:
-            # Run scheduled tasks (Speedtest)
-            schedule.run_pending()
-
             # Main Health Check
             results = perform_health_check(
                 targets,

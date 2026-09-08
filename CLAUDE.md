@@ -86,10 +86,7 @@ Local sentinel: sentinel/src/monitor.py
   |
   |- classify.requires_diagnosis(results) -> healthy or not
   |- on Nth consecutive failure: diagnose_issue() -> fault code
-  |- publish via notifier.py -> MQTT
-  |
-  '- every speedtest.interval_hours (6): perform_speedtest()
-       throughput, then measure_bufferbloat() and classify_load()
+  '- publish via notifier.py -> MQTT
 
 Cloud probe: cloud_probe/main.py
   every --interval (60): check_home_connectivity()
@@ -130,8 +127,6 @@ Order inside `diagnose_issue`:
 | 5 | `monitor.py` | `ISP_ROUTING` (all HTTP failed), `DEGRADED_INTERNET` (partial) |
 | 6 | `monitor.py` | `DEGRADED_QUALITY` - jitter over threshold |
 | 7 | `monitor.py` | `TRANSIENT` - nothing reproduced |
-
-`classify.classify_load` runs on the speedtest schedule, separately from all of the above, and yields `DEGRADED_UNDER_LOAD`.
 
 Inside `classify_connectivity`, two rules are worth knowing:
 
@@ -179,12 +174,6 @@ monitoring:
   thresholds:
     ingress_latency_ms: 120
     jitter_ms: 50
-    bufferbloat_ms: 50
-    loaded_loss_pct: 5
-
-  speedtest:
-    use_cloudflare: true
-    interval_hours: 6
 
 mqtt:
   broker: "192.168.1.50"
@@ -215,9 +204,9 @@ There is no re-detection, so a gateway change needs a restart.
 
 **`sentinel/src/monitor.py`** (637 lines) - config loading and env expansion, the health-check orchestrator, modem-probe caching, reachability smoothing, `diagnose_issue`, path-metric publication, the main loop.
 
-**`sentinel/src/classify.py`** (82 lines) - pure fault decisions. `classify_connectivity`, `requires_diagnosis`, `classify_load`, `outage_confidence`. No I/O, no imports beyond the stdlib. Keep it that way.
+**`sentinel/src/classify.py`** - pure fault decisions. `classify_connectivity`, `requires_diagnosis`, `outage_confidence`. No I/O, no imports beyond the stdlib. Keep it that way.
 
-**`sentinel/src/diagnostics.py`** (406 lines) - all network I/O. Ping, DNS, HTTP, traceroute, gateway detection, router health and scoring, jitter, bufferbloat under verified load, Cloudflare and speedtest-cli throughput.
+**`sentinel/src/diagnostics.py`** - all network I/O. Ping, DNS, HTTP, traceroute, gateway detection, router health and scoring, jitter. No throughput measurement; see "The sentinel does not measure throughput" below.
 
 **`sentinel/src/modem_probe.py`** (124 lines) - BGW620-700 scraper. Three requests per probe: `home.ha` for a session cookie and form nonce, then POSTs to `broadbandstatistics.ha` and `fiberstat.ha`. Regex parsing, deliberately no BeautifulSoup dependency. Never logs; the caller decides. Tracks `broadband_valid` and `fiber_valid` separately, sets aggregate `success` only when both pages contain recognized fields, and retains valid partial results.
 
@@ -317,15 +306,17 @@ Add it there if you touch that area.
 HTTP latency includes DNS, TCP, TLS, and server think time, none of which say anything about path stability.
 Do not feed HTTP timings into jitter.
 
-### Speedtest latency is a real RTT
+### The sentinel does not measure throughput
 
-`run_cloudflare_speedtest` downloads 25 MB for throughput and separately pings `speed.cloudflare.com` for `latency_ms`.
-The download duration is not latency. This was a real bug once; do not reintroduce it.
+It used to, and the number was wrong in a way that looked plausible, which is worse than missing.
 
-### Bufferbloat requires verified load
+The sentinel runs on a Raspberry Pi 4 (192.168.1.3). The Pi 4 has no ARMv8 crypto extensions, so TLS is encrypted in software: measured AES-128-GCM is 246 Mbps on the Pi against 10.6 Gbps on the Home Assistant box, a 43x gap. A single HTTPS stream therefore caps near 250 Mbps, and the old `run_cloudflare_speedtest` reported ~213 Mbps on a line that actually delivers 690 down and 904 up. Plaintext LAN throughput to the Pi is 900 Mbps, so the network was never the constraint.
 
-`measure_bufferbloat` pings idle, starts a background 100 MB Cloudflare download, and waits for `ready_event` confirming bytes actually arrived before sampling loaded RTT.
-If the load generator fails or never delivers within 5 seconds, it returns `None` rather than reporting a meaningless zero-bloat result.
+The same ceiling made the load classifier structurally dishonest. `measure_bufferbloat` generated load from the Pi, and a host that caps near 345 Mbps cannot saturate a 700 Mbps uplink, so it could never create the congestion it was trying to measure. `DEGRADED_UNDER_LOAD` was dropped rather than left to misreport.
+
+Throughput now comes from the Cloudflare Speed Test integration running on Home Assistant. The dashboard reads `sensor.cloudflare_speed_test_90th_percentile_down` / `_up`; the sentinel publishes nothing about throughput. `download_speed`, `upload_speed`, `idle_latency`, `bufferbloat_ms`, `loaded_loss_pct`, `load_quality_status` and `load_fault_detail` are all in `RETIRED_DISCOVERY_KEYS`.
+
+If you are tempted to re-add a throughput probe, measure from a host with AES acceleration, exclude the TLS handshake from the denominator, and use parallel streams. On this Pi it is not worth it.
 
 ### Cloud probe debounce
 

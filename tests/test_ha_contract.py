@@ -68,17 +68,6 @@ def test_manual_gateway_last_change_sensor_is_a_timestamp():
     assert "gateway_last_change_seconds" not in DASHBOARD.read_text()
 
 
-def test_load_quality_topics_exist_in_manual_ha_config():
-    ha = (ROOT / "ha_comprehensive_setup.yaml").read_text()
-    for topic in (
-        "bufferbloat_ms/state",
-        "loaded_loss_pct/state",
-        "load_quality_status/state",
-        "load_fault_detail/state",
-    ):
-        assert topic in ha
-
-
 def test_deployment_manual_topics_match_notifier_state_topics():
     deployment = (ROOT / "DEPLOYMENT.md").read_text()
     for key in (
@@ -89,7 +78,6 @@ def test_deployment_manual_topics_match_notifier_state_topics():
         "dns_latency",
         "http_latency",
         "jitter",
-        "download_speed",
     ):
         assert f"home/network/sentinel/{key}/state" in deployment
 
@@ -173,3 +161,70 @@ def test_dashboard_carries_no_cable_era_wording():
     dashboard = DASHBOARD.read_text().lower()
     for stale in ("cmts", "coax", "lastmile_rf", "cable modem"):
         assert stale not in dashboard, f"stale cable-era wording in dashboard: {stale}"
+
+
+def test_dashboard_reads_throughput_from_home_assistant_not_the_sentinel():
+    """The sentinel host is a Raspberry Pi 4 with no AES acceleration, so a
+    single TLS stream caps near 250 Mbps and its own speedtest reported 213 Mbps
+    on a 690 Mbps line. Those probes are retired; throughput comes from the
+    Cloudflare Speed Test integration on the Home Assistant box. Do not point
+    this back at a sentinel-measured figure."""
+    dashboard = DASHBOARD.read_text()
+    for entity in (
+        "sensor.cloudflare_speed_test_90th_percentile_down",
+        "sensor.cloudflare_speed_test_90th_percentile_up",
+    ):
+        assert entity in dashboard, f"dashboard should read throughput from {entity}"
+    for retired in (
+        "netsentinel_download_speed",
+        "netsentinel_upload_speed",
+        "netsentinel_idle_latency",
+        "netsentinel_bufferbloat",
+        "netsentinel_loaded_packet_loss",
+        "netsentinel_load_quality",
+    ):
+        assert retired not in dashboard, (
+            f"{retired} is retired and no longer published; remove it from the "
+            "dashboard or it will render as permanently unavailable."
+        )
+
+
+def test_retired_sensors_are_absent_from_every_operator_surface():
+    """A retired sensor left in a config file becomes a permanently unavailable
+    entity, which is worse than no entity at all."""
+    from notifier import Notifier
+
+    surfaces = ("ha_comprehensive_setup.yaml", "ha_automation_alerts.yaml")
+    for key in Notifier.RETIRED_DISCOVERY_KEYS:
+        for name in surfaces:
+            text = (ROOT / name).read_text()
+            assert f"{key}/state" not in text, (
+                f"{name} still subscribes to retired topic {key}/state"
+            )
+
+
+def test_load_classifier_is_gone():
+    """Dropped deliberately: bufferbloat was generated from the sentinel host,
+    which cannot saturate the uplink, so the verdict could never be honest."""
+    import classify
+
+    assert not hasattr(classify, "classify_load")
+
+    # The docs SHOULD still explain why it was retired. What must not survive is
+    # the code being offered as something that can fire: a remedy-map entry, a
+    # fault-code table row, or an alert trigger.
+    dashboard = DASHBOARD.read_text()
+    assert "'DEGRADED_UNDER_LOAD':" not in dashboard, (
+        "DEGRADED_UNDER_LOAD is still in the verdict remedy map"
+    )
+    assert "| DEGRADED_UNDER_LOAD |" not in dashboard, (
+        "DEGRADED_UNDER_LOAD is still a row in the runbook code table"
+    )
+    readme = (ROOT / "README.md").read_text()
+    assert "| `DEGRADED_UNDER_LOAD` |" not in readme, (
+        "DEGRADED_UNDER_LOAD is still a row in the README fault-code table"
+    )
+    alerts = (ROOT / "ha_automation_alerts.yaml").read_text()
+    assert "DEGRADED_UNDER_LOAD" not in alerts, (
+        "an alert still triggers on DEGRADED_UNDER_LOAD"
+    )

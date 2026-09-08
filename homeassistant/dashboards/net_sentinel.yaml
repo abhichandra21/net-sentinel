@@ -201,7 +201,6 @@ views:
                 'DEGRADED_DNS': 'Some lookups fail, others are fine. Usually self-clears.',
                 'DEGRADED_INTERNET': 'Some endpoints are unreachable but our own anchor still answers, so the uplink is fine. Partial peering problem, not you.',
                 'DEGRADED_QUALITY': 'Jitter is over threshold. The path is unstable: interference or a saturated uplink.',
-                'DEGRADED_UNDER_LOAD': 'Fine when idle, bad when busy. Bufferbloat or loss under load. A QoS problem, not an outage.',
                 'TRANSIENT': 'Something failed briefly and recovered before it could be pinned down.'
               } %}
               #### Sentinel verdict
@@ -324,51 +323,39 @@ views:
               {%- set score = states('sensor.network_sentinel_netsentinel_router_health_score') -%}
               {%- set loss = states('sensor.network_sentinel_netsentinel_router_packet_loss') -%}
               {%- set rj = states('sensor.network_sentinel_netsentinel_router_jitter') -%}
+              {%- set j = states('sensor.network_sentinel_netsentinel_connection_jitter') -%}
               #### Your router
 
               | Field | Value | Note |
               | --- | --- | --- |
               | Health | {% if score | is_number %}{% if score | float(100) < 30 %}**{{ score }} / 100**{% elif score | float(100) < 60 %}*{{ score }} / 100*{% else %}`{{ score }} / 100`{% endif %}{% else %}~~--~~{% endif %} | 5-ping score |
               | Packet loss | {% if loss | is_number %}{% if loss | float(0) > 5 %}**{{ loss }} %**{% elif loss | float(0) > 0 %}*{{ loss }} %*{% else %}`{{ loss }} %`{% endif %}{% else %}~~--~~{% endif %} | to gateway |
-              | Local jitter | {% if rj | is_number %}{% if rj | float(0) > 50 %}**{{ rj }} ms**{% elif rj | float(0) > 10 %}*{{ rj }} ms*{% else %}`{{ rj }} ms`{% endif %}{% else %}~~--~~{% endif %} | LAN stability |
+              | Local jitter | {% if rj | is_number %}{% if rj | float(0) > 50 %}**{{ rj }} ms**{% elif rj | float(0) > 10 %}*{{ rj }} ms*{% else %}`{{ rj }} ms`{% endif %}{% else %}~~--~~{% endif %} | 5-ping spread |
+              | Path jitter | {% if j | is_number %}{% if j | float(0) > 50 %}**{{ j }} ms**{% elif j | float(0) > 20 %}*{{ j }} ms*{% else %}`{{ j }} ms`{% endif %}{% else %}~~--~~{% endif %} | last 10 pings |
 
           - type: markdown
             card_mod: *plate
             content: |
-              {%- set j = states('sensor.network_sentinel_netsentinel_connection_jitter') -%}
-              {%- set bloat = states('sensor.network_sentinel_netsentinel_bufferbloat') -%}
-              {%- set lloss = states('sensor.network_sentinel_netsentinel_loaded_packet_loss') -%}
-              {%- set lq = states('sensor.network_sentinel_netsentinel_load_quality_status') -%}
-              {%- set lqd = states('sensor.network_sentinel_netsentinel_load_quality_detail') -%}
-              #### Quality under load
-
-              | Field | Value | Note |
-              | --- | --- | --- |
-              | Jitter | {% if j | is_number %}{% if j | float(0) > 50 %}**{{ j }} ms**{% elif j | float(0) > 20 %}*{{ j }} ms*{% else %}`{{ j }} ms`{% endif %}{% else %}~~--~~{% endif %} | idle path |
-              | Bufferbloat | {% if bloat | is_number %}{% if bloat | float(0) >= 50 %}**{{ bloat }} ms**{% elif bloat | float(0) >= 25 %}*{{ bloat }} ms*{% else %}`{{ bloat }} ms`{% endif %}{% else %}~~not measured~~{% endif %} | added by load |
-              | Loaded loss | {% if lloss | is_number %}{% if lloss | float(0) >= 5 %}**{{ lloss }} %**{% elif lloss | float(0) > 0 %}*{{ lloss }} %*{% else %}`{{ lloss }} %`{% endif %}{% else %}~~not measured~~{% endif %} | while saturated |
-
-              {% if lq in ['UNAVAILABLE', 'unknown', 'unavailable'] -%}
-              Not measured on the last run. {{ lqd if lqd not in ['unknown', 'unavailable', ''] else 'The load generator did not confirm traffic.' }}
-              {%- elif lq != 'HEALTHY' -%}
-              {{ lqd }}
-              {%- else -%}
-              Held up under a saturated link on the last run.
-              {%- endif %}
-
-          - type: markdown
-            card_mod: *plate
-            content: |
-              {%- set dl = states('sensor.network_sentinel_netsentinel_download_speed') -%}
-              {%- set ul = states('sensor.network_sentinel_netsentinel_upload_speed') -%}
-              {%- set idle = states('sensor.network_sentinel_netsentinel_idle_latency') -%}
+              {#- Throughput comes from the Cloudflare Speed Test integration
+                  running on the Home Assistant box, NOT from the sentinel. The
+                  sentinel runs on a Raspberry Pi 4 with no AES acceleration, so
+                  its own figure measured software TLS (~213 Mbps) rather than
+                  the line (~690). Those sensors are retired; see the Runbook.
+                  cloudflare_speed_test is a HACS integration this repo does not
+                  own, so every row degrades to "no data" if it disappears. -#}
+              {%- set dl = states('sensor.cloudflare_speed_test_90th_percentile_down') -%}
+              {%- set ul = states('sensor.cloudflare_speed_test_90th_percentile_up') -%}
+              {%- set lat = states('sensor.cloudflare_speed_test_latency') -%}
+              {%- set age = relative_time(states.sensor.cloudflare_speed_test_90th_percentile_down.last_changed) if states.sensor.cloudflare_speed_test_90th_percentile_down is not none else '' -%}
               #### Throughput
 
               | Field | Value | Note |
               | --- | --- | --- |
-              | Download | {% if dl | is_number %}`{{ dl | float | round(0) | int }} Mbps`{% else %}~~--~~{% endif %} | {{ relative_time(states.sensor.network_sentinel_netsentinel_download_speed.last_changed) }} ago |
-              | Upload | {% if ul | is_number %}`{{ ul | float | round(0) | int }} Mbps`{% else %}~~not measured~~{% endif %} | {% if ul | is_number %}last run{% else %}cloudflare path{% endif %} |
-              | Idle RTT | {% if idle | is_number %}`{{ idle }} ms`{% else %}~~--~~{% endif %} | bufferbloat base |
+              | Download | {% if dl | is_number %}`{{ dl | float | round(0) | int }} Mbps`{% else %}~~no data~~{% endif %} | {% if dl | is_number %}{{ age }} ago{% else %}needs cloudflare integration{% endif %} |
+              | Upload | {% if ul | is_number %}`{{ ul | float | round(0) | int }} Mbps`{% else %}~~no data~~{% endif %} | 90th percentile |
+              | Latency | {% if lat | is_number %}{% if lat | float(0) > 100 %}*{{ lat }} ms*{% else %}`{{ lat }} ms`{% endif %}{% else %}~~no data~~{% endif %} | loaded RTT |
+
+              Measured from Home Assistant, not from the sentinel host.
 
       # ---- PATH LATENCY TREND ---------------------------------------------
       - type: grid
@@ -504,7 +491,7 @@ views:
             graph_span: 7d
             header:
               show: true
-              title: Download / 7 d
+              title: Download / 7 d / cloudflare
               show_states: true
               colorize_states: true
             apex_config:
@@ -521,7 +508,7 @@ views:
               tooltip:
                 theme: dark
             series:
-              - entity: sensor.network_sentinel_netsentinel_download_speed
+              - entity: sensor.cloudflare_speed_test_90th_percentile_down
                 name: Down
                 color: "#6ee7a8"
                 type: area
@@ -644,7 +631,7 @@ views:
         cards:
           - type: entities
             card_mod: *panel
-            title: Reliability and load
+            title: Reliability
             state_color: true
             show_header_toggle: false
             entities:
@@ -654,30 +641,28 @@ views:
                 name: HTTP success
               - entity: sensor.network_sentinel_netsentinel_connection_jitter
                 name: Connection jitter
-              - entity: sensor.network_sentinel_netsentinel_bufferbloat
-                name: Bufferbloat
-              - entity: sensor.network_sentinel_netsentinel_loaded_packet_loss
-                name: Loaded loss
-              - entity: sensor.network_sentinel_netsentinel_load_quality_status
-                name: Load verdict
-              - entity: sensor.network_sentinel_netsentinel_load_quality_detail
-                name: Load detail
 
       - type: grid
         column_span: 1
         cards:
           - type: entities
             card_mod: *panel
-            title: Throughput
+            title: Throughput (Home Assistant, not the sentinel)
             state_color: true
             show_header_toggle: false
             entities:
-              - entity: sensor.network_sentinel_netsentinel_download_speed
-                name: Download
-              - entity: sensor.network_sentinel_netsentinel_upload_speed
-                name: Upload
-              - entity: sensor.network_sentinel_netsentinel_idle_latency
-                name: Idle RTT
+              - entity: sensor.cloudflare_speed_test_90th_percentile_down
+                name: Download p90
+              - entity: sensor.cloudflare_speed_test_90th_percentile_up
+                name: Upload p90
+              - entity: sensor.cloudflare_speed_test_25mb_down
+                name: Download 25MB
+              - entity: sensor.cloudflare_speed_test_latency
+                name: Latency
+              - entity: sensor.cloudflare_speed_test_jitter
+                name: Jitter
+              - entity: sensor.cloudflare_speed_test_isp
+                name: ISP
 
   # ===========================================================================
   # RUNBOOK - what each code means and what to do. Replaces the old hover
@@ -737,7 +722,6 @@ views:
               | DEGRADED_DNS | Some lookups failed, not all. |
               | DEGRADED_INTERNET | Some endpoints unreachable while the anchor answers. |
               | DEGRADED_QUALITY | Jitter over threshold. |
-              | DEGRADED_UNDER_LOAD | Bufferbloat or loss only when saturated. |
               | TRANSIENT | Failed, then recovered before it could be pinned down. |
 
       - type: grid
@@ -755,10 +739,35 @@ views:
               | ISP hop | First hop past the gateway, auto-detected at startup. If detection failed, ISP attribution is disabled for that process. |
               | DNS | Resolution time across 4 domains on the configured resolvers. |
               | HTTP | End-to-end fetch of 4 public endpoints. The user-facing number. |
-              | Jitter | Standard deviation of the last 10 router pings. ICMP only, never HTTP timings. |
-              | Bufferbloat | Extra latency once the link is saturated. Over 50 ms and calls stutter. Needs a confirmed load, so it reads "not measured" rather than zero when the generator fails. |
-              | Idle RTT | The baseline that bufferbloat is measured against. |
+              | Path jitter | Standard deviation of the last 10 router pings. ICMP only, never HTTP timings. Drives DEGRADED_QUALITY. |
+              | Local jitter | Spread across the 5 pings of one router-health probe. |
+              | Throughput | Comes from the Cloudflare Speed Test integration on the Home Assistant box, not from the sentinel. See below. |
               | Rx / Tx power | Optical power at the transceiver in microwatts, with the dBm equivalent alongside. |
+
+              ---
+
+              #### Why throughput is not measured by the sentinel
+
+              The sentinel runs on a Raspberry Pi 4, which has no AES hardware
+              acceleration, so TLS is encrypted and decrypted in software. That
+              caps a single HTTPS stream at roughly 250 Mbps: measured
+              AES-128-GCM on the Pi is 246 Mbps against 10.6 Gbps on the Home
+              Assistant box, a 43x difference.
+
+              So the sentinel's old "download speed" reported about 213 Mbps on
+              a line that actually delivers 690 down and 904 up. It was
+              measuring the Pi's crypto ceiling, not the internet. Plaintext
+              LAN throughput to the Pi is 900 Mbps, so the network was never
+              the problem.
+
+              The same limit broke the load classifier: bufferbloat was measured
+              by generating load from the Pi, and a host that caps near 345 Mbps
+              cannot saturate a 700 Mbps uplink, so DEGRADED_UNDER_LOAD could
+              never fire honestly. Both probes were removed rather than left to
+              report numbers that look like faults.
+
+              Throughput now comes from the Cloudflare Speed Test integration
+              running on Home Assistant itself, every 8 hours.
 
               ---
 

@@ -5,9 +5,7 @@ PUBLISHED_KEYS = {
     "status", "blame", "fault_detail", "router_latency",
     "router_health_score", "router_packet_loss", "router_jitter_internal",
     "dns_latency", "dns_success_rate", "http_latency", "http_success_rate",
-    "jitter", "download_speed", "upload_speed", "idle_latency", "last_outage",
-    "isp_gateway_latency", "bufferbloat_ms", "loaded_loss_pct",
-    "load_quality_status", "load_fault_detail", "modem_status",
+    "jitter", "last_outage", "isp_gateway_latency", "modem_status",
     "modem_latency",
     "modem_wan_state", "modem_fiber_state", "modem_wan_ip",
     "modem_rx_power_uw", "modem_tx_power_uw", "modem_temp_c",
@@ -59,6 +57,16 @@ def test_retired_discovery_topics_are_deleted():
         "",
         True,
     ) in published
+    # Throughput and load-quality sensors were retired with the Pi-side
+    # speedtest; HA must be told to delete them, not left showing stale values.
+    for key in (
+        "download_speed", "upload_speed", "idle_latency",
+        "bufferbloat_ms", "loaded_loss_pct",
+        "load_quality_status", "load_fault_detail",
+    ):
+        assert (
+            f"homeassistant/sensor/netsentinel_{key}/config", "", True,
+        ) in published, f"{key} discovery not deleted"
 
 
 def test_modem_latency_discovery_has_availability_topic():
