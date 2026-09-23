@@ -134,3 +134,57 @@ def test_update_availability_publishes_retained_state():
         ("home/network/sentinel/modem_latency/availability", "online", True),
         ("home/network/sentinel/modem_latency/availability", "offline", True),
     ]
+
+
+def test_last_outage_discovery_has_attributes_topic():
+    import json
+    published = []
+
+    class Client:
+        def publish(self, topic, payload, retain=False):
+            published.append((topic, payload, retain))
+
+    notifier = Notifier.__new__(Notifier)
+    notifier.connected = True
+    notifier.config = {"mqtt": {"topic_prefix": "home/network/sentinel"}}
+    notifier.mqtt_client = Client()
+    notifier._publish_discovery()
+
+    topic = "homeassistant/sensor/netsentinel_last_outage/config"
+    payload = next(json.loads(body) for sent_topic, body, _ in published
+                   if sent_topic == topic)
+    assert payload["json_attributes_topic"] == (
+        "home/network/sentinel/last_outage/attributes"
+    )
+
+
+def test_long_outage_reason_fits_state_limit_and_keeps_full_text(tmp_path):
+    # Home Assistant rejects sensor states over 255 characters, and outage
+    # details carry a traceroute, so the full text has to ride in attributes.
+    import json
+    published = []
+
+    class Client:
+        def publish(self, topic, payload, retain=False):
+            published.append((topic, payload, retain))
+
+    notifier = Notifier.__new__(Notifier)
+    notifier.connected = True
+    notifier._warned_unknown_state_keys = set()
+    notifier.config = {
+        "mqtt": {"topic_prefix": "home/network/sentinel"},
+        "logging": {"file_path": str(tmp_path / "events.csv")},
+    }
+    notifier.mqtt_client = Client()
+
+    details = "ISP first hop is unreachable. Trace: " + "x" * 400
+    notifier.log_event("OUTAGE", "ISP", details, "CRITICAL")
+
+    state = next(body for topic, body, _ in published
+                 if topic == "home/network/sentinel/last_outage/state")
+    attributes = next(json.loads(body) for topic, body, _ in published
+                      if topic == "home/network/sentinel/last_outage/attributes")
+    assert len(state) <= 255
+    assert state.startswith("OUTAGE: ISP first hop is unreachable.")
+    assert attributes["detail"] == f"OUTAGE: {details}"
+    assert attributes["target"] == "ISP"
