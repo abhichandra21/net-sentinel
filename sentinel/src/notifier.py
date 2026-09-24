@@ -38,7 +38,7 @@ class Notifier:
             "availability": True,
             "state_class": "measurement",
         },
-        "last_outage": {"name": "Last Outage Reason", "icon": "mdi:alert-circle"},
+        "last_outage": {"name": "Last Outage Reason", "icon": "mdi:alert-circle", "attributes": True},
         "modem_wan_state": {
             "name": "Gateway WAN State",
             "icon": "mdi:wan",
@@ -108,6 +108,8 @@ class Notifier:
         "load_quality_status",
         "load_fault_detail",
     }
+
+    HA_STATE_MAX_CHARS = 255
 
     def __init__(self, config):
         self.config = config
@@ -188,6 +190,10 @@ class Notifier:
                 )
                 config_payload["payload_available"] = "online"
                 config_payload["payload_not_available"] = "offline"
+            if data.get("attributes"):
+                config_payload["json_attributes_topic"] = (
+                    f"{prefix}/{key}/attributes"
+                )
 
             topic = f"homeassistant/sensor/netsentinel_{key}/config"
             self.mqtt_client.publish(topic, json.dumps(config_payload), retain=True)
@@ -205,6 +211,17 @@ class Notifier:
         if not self.connected: return
         prefix = self.config['mqtt']['topic_prefix']
         self.mqtt_client.publish(f"{prefix}/{key}/state", str(value), retain=True)
+
+    def update_attributes(self, key, attributes):
+        """Publish retained JSON attributes for a sensor that declares them."""
+        if not self.connected:
+            return
+        prefix = self.config["mqtt"]["topic_prefix"]
+        self.mqtt_client.publish(
+            f"{prefix}/{key}/attributes",
+            json.dumps(attributes),
+            retain=True,
+        )
 
     def update_availability(self, key, available):
         """Publish retained Home Assistant availability for one discovered sensor."""
@@ -230,7 +247,19 @@ class Notifier:
         except Exception as e:
             logger.error(f"Failed to write to log file: {e}")
 
-        # MQTT Alert if critical
+        # MQTT Alert if critical. Home Assistant rejects states over 255
+        # characters and outage details carry a traceroute, so the state gets
+        # a clipped reason and the full text goes out as attributes.
         if status == "CRITICAL":
-            self.update_state("last_outage", f"{event_type}: {details}")
+            reason = f"{event_type}: {details}"
+            if len(reason) > self.HA_STATE_MAX_CHARS:
+                reason_state = reason[:self.HA_STATE_MAX_CHARS - 3] + "..."
+            else:
+                reason_state = reason
+            self.update_state("last_outage", reason_state)
+            self.update_attributes("last_outage", {
+                "detail": reason,
+                "target": target,
+                "timestamp": timestamp,
+            })
             
